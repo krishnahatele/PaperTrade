@@ -22,3 +22,7 @@ def test_live_trading_rejected_in_phase_0(kwargs: dict[str, object]) -> None:
 def test_secrets_are_masked() -> None:
     s = Settings(kite_api_secret="super-secret")
     assert "super-secret" not in repr(s)
+
+
+def test_blank_secret_key_means_unset() -> None:
+    assert Settings(secret_key="").secret_key is None

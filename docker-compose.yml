@@ -30,6 +30,9 @@ services:
       MARKETOS_CORS_ORIGINS: '["http://localhost:${WEB_PORT:-3000}"]'
     ports:
       - "${API_PORT:-8000}:8000"
+    volumes:
+      # Master encryption key for stored credentials (generated on first start).
+      - apisecrets:/app/.secrets
     depends_on:
       db:
         condition: service_healthy
@@ -48,3 +51,4 @@ services:
 
 volumes:
   pgdata:
+  apisecrets:

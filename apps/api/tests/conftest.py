@@ -15,6 +15,7 @@ from pathlib import Path
 import pytest
 from alembic import command
 from alembic.config import Config
+from cryptography.fernet import Fernet
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import create_async_engine
@@ -57,14 +58,31 @@ def pytest_collection_modifyitems(items: list[pytest.Item]) -> None:
             item.add_marker(skip)
 
 
+TEST_SECRET_KEY = Fernet.generate_key().decode()
+ADMIN_PASSWORD = "correct horse battery"
+
+
+def make_settings(**overrides: object) -> Settings:
+    base: dict[str, object] = {
+        "environment": Environment.TEST,
+        "database_url": TEST_DB_URL,
+        "log_json": False,
+        "log_level": "WARNING",
+        "secret_key": TEST_SECRET_KEY,
+        "auth_enabled": False,
+    }
+    return Settings(**{**base, **overrides})  # type: ignore[arg-type]
+
+
 @pytest.fixture(scope="session")
 def settings() -> Settings:
-    return Settings(
-        environment=Environment.TEST,
-        database_url=TEST_DB_URL,
-        log_json=False,
-        log_level="WARNING",
-    )
+    """Auth disabled: for tests that don't exercise authentication."""
+    return make_settings()
+
+
+@pytest.fixture(scope="session")
+def auth_settings() -> Settings:
+    return make_settings(auth_enabled=True)
 
 
 @pytest.fixture(scope="session")
@@ -84,15 +102,37 @@ async def client(settings: Settings) -> AsyncIterator[AsyncClient]:
             yield c
 
 
-@pytest.fixture
-async def db_client(migrated_db: None, client: AsyncClient) -> AsyncIterator[AsyncClient]:
-    yield client
+async def _truncate_all() -> None:
     engine = create_async_engine(TEST_DB_URL)
     async with engine.begin() as conn:
-        await conn.execute(
-            text(
-                "TRUNCATE trades, positions, orders, signals, raw_messages, "
-                "signal_sources, broker_accounts, instruments, events CASCADE"
+        tables = (
+            await conn.execute(
+                text(
+                    "SELECT tablename FROM pg_tables WHERE schemaname='public' "
+                    "AND tablename <> 'alembic_version'"
+                )
             )
-        )
+        ).scalars()
+        await conn.execute(text(f"TRUNCATE {', '.join(tables)} CASCADE"))
     await engine.dispose()
+
+
+@pytest.fixture
+async def anon_client(migrated_db: None, auth_settings: Settings) -> AsyncIterator[AsyncClient]:
+    """Auth enabled, not logged in, clean database."""
+    await _truncate_all()
+    app = create_app(auth_settings)
+    async with app.router.lifespan_context(app):
+        transport = ASGITransport(app=app)
+        async with AsyncClient(transport=transport, base_url="http://test") as c:
+            yield c
+    await _truncate_all()
+
+
+@pytest.fixture
+async def db_client(anon_client: AsyncClient) -> AsyncClient:
+    """Auth enabled and logged in as admin, clean database."""
+    r = await anon_client.post("/api/v1/auth/setup", json={"password": ADMIN_PASSWORD})
+    assert r.status_code == 200, r.text
+    anon_client.headers["Authorization"] = f"Bearer {r.json()['token']}"
+    return anon_client

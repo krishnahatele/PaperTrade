@@ -1,11 +1,15 @@
 from __future__ import annotations
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Depends
 
+from app.api.deps import require_auth
 from app.api.v1.routes import (
+    auth,
     broker_accounts,
     events,
     instruments,
+    integrations,
+    settings,
     signal_sources,
     signals,
     system,
@@ -13,10 +17,16 @@ from app.api.v1.routes import (
 )
 
 api_router = APIRouter()
-api_router.include_router(system.router)
-api_router.include_router(instruments.router)
-api_router.include_router(broker_accounts.router)
-api_router.include_router(signal_sources.router)
-api_router.include_router(signals.router)
-api_router.include_router(trading.router)
-api_router.include_router(events.router)
+api_router.include_router(auth.router)
+
+protected = APIRouter(dependencies=[Depends(require_auth)])
+protected.include_router(system.router)
+protected.include_router(instruments.router)
+protected.include_router(broker_accounts.router)
+protected.include_router(signal_sources.router)
+protected.include_router(signals.router)
+protected.include_router(trading.router)
+protected.include_router(events.router)
+protected.include_router(integrations.router)
+protected.include_router(settings.router)
+api_router.include_router(protected)

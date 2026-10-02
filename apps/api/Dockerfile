@@ -16,7 +16,8 @@ RUN --mount=type=cache,target=/root/.cache/uv uv sync --frozen --no-install-proj
 FROM deps AS runtime
 COPY . .
 RUN --mount=type=cache,target=/root/.cache/uv uv sync --frozen --no-dev \
- && useradd --system --uid 10001 marketos
+ && useradd --system --uid 10001 marketos \
+ && mkdir -p /app/.secrets && chown marketos /app/.secrets
 USER marketos
 EXPOSE 8000
 HEALTHCHECK --interval=10s --timeout=3s --start-period=10s --retries=5 \

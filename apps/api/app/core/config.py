@@ -9,7 +9,7 @@ from __future__ import annotations
 from enum import StrEnum
 from functools import lru_cache
 
-from pydantic import Field, PostgresDsn, SecretStr, model_validator
+from pydantic import Field, PostgresDsn, SecretStr, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -55,6 +55,14 @@ class Settings(BaseSettings):
     database_max_overflow: int = 10
     database_echo: bool = False
 
+    # --- Security ----------------------------------------------------------
+    # Master key (urlsafe base64, 32 bytes) used to encrypt stored credentials.
+    # If unset, a key is generated once and kept in ``secret_key_file``.
+    secret_key: SecretStr | None = None
+    secret_key_file: str = ".secrets/master.key"  # noqa: S105 - a path, not a secret
+    auth_enabled: bool = True
+    auth_token_ttl_hours: int = Field(default=12, gt=0, le=24 * 30)
+
     # --- Trading safety ----------------------------------------------------
     # Live trading is hard-disabled until a later phase explicitly enables it.
     trading_mode: TradingMode = TradingMode.PAPER
@@ -67,6 +75,19 @@ class Settings(BaseSettings):
     telegram_api_hash: SecretStr | None = None
     llm_provider: str = "none"
     llm_api_key: SecretStr | None = None
+
+    @field_validator(
+        "secret_key",
+        "kite_api_key",
+        "kite_api_secret",
+        "telegram_api_id",
+        "telegram_api_hash",
+        "llm_api_key",
+        mode="before",
+    )
+    @classmethod
+    def _blank_is_none(cls, v: object) -> object:
+        return None if isinstance(v, str) and not v.strip() else v
 
     @model_validator(mode="after")
     def _enforce_trading_safety(self) -> Settings:

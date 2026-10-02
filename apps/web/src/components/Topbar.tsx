@@ -1,6 +1,7 @@
 "use client";
 
 import { usePathname } from "next/navigation";
+import { signalUnauthorized } from "@/lib/auth";
 import { findNavItem } from "@/lib/nav";
 import type { Readiness, SystemInfo } from "@/lib/api";
 import { useApi } from "@/lib/useApi";
@@ -29,6 +30,9 @@ export function Topbar() {
           <span aria-hidden className="h-1.5 w-1.5 rounded-full bg-current" />
           {backendLabel}
         </StatusPill>
+        <button type="button" onClick={signalUnauthorized} className="ml-1 rounded-md px-2 py-1 text-xs text-muted hover:bg-panel-2 hover:text-text">
+          Sign out
+        </button>
       </div>
     </header>
   );

@@ -1,8 +1,8 @@
 import pytest
 from httpx import AsyncClient
 
-from app.core.config import Environment, Settings
 from app.main import create_app
+from tests.conftest import make_settings
 
 
 async def test_liveness(client: AsyncClient) -> None:
@@ -30,10 +30,8 @@ async def test_system_info(client: AsyncClient) -> None:
 async def test_readiness_degraded_without_db() -> None:
     from httpx import ASGITransport
 
-    settings = Settings(
-        environment=Environment.TEST,
+    settings = make_settings(
         database_url="postgresql+asyncpg://nobody:nope@127.0.0.1:1/none",
-        log_json=False,
         log_level="CRITICAL",
     )
     app = create_app(settings)

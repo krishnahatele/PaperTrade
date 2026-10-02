@@ -27,6 +27,8 @@ class EventType(StrEnum):
     ORDER_CREATED = "order.created"
     ORDER_STATUS_CHANGED = "order.status_changed"
     TRADE_EXECUTED = "trade.executed"
+    INTEGRATION_UPDATED = "integration.updated"
+    SETTINGS_UPDATED = "settings.updated"
 
 
 def _utcnow() -> datetime:

@@ -74,3 +74,27 @@ export type EventRecord = {
   correlation_id: string | null;
   occurred_at: string;
 };
+
+export type SecretField = { set: boolean; hint: string | null };
+
+export type Integrations = {
+  telegram: { api_id: SecretField; api_hash: SecretField; phone: SecretField; authorized: boolean };
+  kite: { api_key: SecretField; api_secret: SecretField; session_active: boolean; user_id: string | null };
+  llm: { api_key: SecretField };
+};
+
+export type TradingRuntime = {
+  kill_switch: boolean;
+  auto_execute: boolean;
+  live_armed: boolean;
+  min_confidence: string;
+  signal_ttl_minutes: number;
+};
+
+export type ParsingRuntime = {
+  mode: "rules_only" | "rules_then_llm" | "llm_only";
+  llm_model: string;
+  llm_provider: string;
+};
+
+export type RuntimeSettings = { trading: TradingRuntime; parsing: ParsingRuntime };

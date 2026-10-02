@@ -27,6 +27,11 @@ class ConflictError(MarketOSError):
     code = "conflict"
 
 
+class InvalidInputError(MarketOSError):
+    status_code = 422
+    code = "invalid_input"
+
+
 class FeatureDisabledError(MarketOSError):
     """Raised when a capability exists in the interface but is not enabled yet."""
 
