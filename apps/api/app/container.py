@@ -24,6 +24,7 @@ from app.services.kite import KiteService
 from app.services.llm import LLMService
 from app.services.market_data import MarketDataService
 from app.services.news import NewsService
+from app.services.replay import ReplayService
 from app.services.runtime import RuntimeStore
 from app.services.secrets import SecretStore
 from app.services.signal_pipeline import SignalPipeline
@@ -52,6 +53,7 @@ class Container:
     engine: TradingEngine
     bot: TelegramBotService
     news: NewsService
+    replay: ReplayService
     adapters: AdapterRegistry
     login_limiter: LoginRateLimiter = field(default_factory=LoginRateLimiter)
     _tasks: set[asyncio.Task[None]] = field(default_factory=set)
@@ -94,6 +96,7 @@ class Container:
                 "broker": broker_health,
             },
         )
+        pipeline = SignalPipeline(db.session_factory, bus, runtime, llm, instruments)
         container = cls(
             settings=settings,
             db=db,
@@ -104,7 +107,7 @@ class Container:
             telegram=telegram,
             llm=llm,
             instruments=instruments,
-            pipeline=SignalPipeline(db.session_factory, bus, runtime, llm, instruments),
+            pipeline=pipeline,
             kite=kite,
             brokers=brokers,
             history=history,
@@ -114,12 +117,16 @@ class Container:
                 secrets, runtime, bus, db.session_factory, engine, market, telegram
             ),
             news=NewsService(db.session_factory, bus, runtime, market),
+            replay=ReplayService(
+                db.session_factory, bus, telegram, pipeline, instruments, history, engine
+            ),
             adapters=adapters,
         )
         if settings.background_services:
             container.pipeline.spawn = container.spawn
             container.engine.spawn = container.spawn
             container.bot.spawn = container.spawn
+            container.replay.spawn = container.spawn
         bus.subscribe(EventType.RAW_MESSAGE_RECEIVED, container.pipeline.on_raw_message)
         bus.subscribe(EventType.SIGNAL_CREATED, container.engine.on_signal_event)
         bus.subscribe(EventType.SIGNAL_STATUS_CHANGED, container.engine.on_signal_event)

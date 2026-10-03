@@ -15,6 +15,7 @@ from app.api.v1.routes import (
     market,
     messages,
     news,
+    replay,
     settings,
     signal_sources,
     signals,
@@ -43,4 +44,5 @@ protected.include_router(market.router)
 protected.include_router(brokers.router)
 protected.include_router(bot.router)
 protected.include_router(news.router)
+protected.include_router(replay.router)
 api_router.include_router(protected)
