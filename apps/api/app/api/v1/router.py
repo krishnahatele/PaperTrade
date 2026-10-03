@@ -5,6 +5,7 @@ from fastapi import APIRouter, Depends
 from app.api.deps import require_auth
 from app.api.v1.routes import (
     auth,
+    bot,
     broker_accounts,
     brokers,
     events,
@@ -39,4 +40,5 @@ protected.include_router(messages.router)
 protected.include_router(llm.router)
 protected.include_router(market.router)
 protected.include_router(brokers.router)
+protected.include_router(bot.router)
 api_router.include_router(protected)

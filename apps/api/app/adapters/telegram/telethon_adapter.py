@@ -3,8 +3,9 @@
 from __future__ import annotations
 
 import asyncio
+import re
 from collections.abc import Sequence
-from datetime import UTC
+from datetime import UTC, datetime
 from typing import Any
 
 from telethon import TelegramClient, events, utils
@@ -43,6 +44,7 @@ class TelegramUnavailableError(MarketOSError):
 
 
 CONNECT_TIMEOUT = 15.0
+BOT_TOKEN_RE = re.compile(r"\d{6,}:[A-Za-z0-9_-]{30,}")
 
 
 class TelegramLoginError(MarketOSError):
@@ -223,6 +225,41 @@ class TelethonTelegramAdapter(TelegramAdapter):
                 out.append(inbound)
         out.reverse()  # oldest first
         return out
+
+    async def fetch_between(
+        self, channel_id: str, start: datetime, end: datetime, limit: int = 5000
+    ) -> list[InboundMessage]:
+        await self._connect()
+        entity = await self._client.get_input_entity(int(channel_id))
+        out: list[InboundMessage] = []
+        # Newest first from ``end`` backwards; stop once we pass ``start``.
+        async for m in self._client.iter_messages(entity, offset_date=end, limit=limit):
+            sent = m.date if m.date.tzinfo else m.date.replace(tzinfo=UTC)
+            if sent < start:
+                break
+            inbound = _to_inbound(m)
+            if inbound is not None:
+                out.append(inbound)
+        out.reverse()
+        return out
+
+    async def create_bot(self, name: str, username: str) -> str:
+        await self._connect()
+        if not await self._client.is_user_authorized():
+            raise TelegramLoginError("Log in to Telegram first.")
+        async with self._client.conversation("BotFather", timeout=30) as conv:
+            for text in ("/newbot", name, username):
+                await conv.send_message(text)
+                reply = await conv.get_response()
+        body = str(getattr(reply, "raw_text", "") or "")
+        m = BOT_TOKEN_RE.search(body)
+        if not m:
+            raise TelegramLoginError(f"BotFather did not create the bot: {body[:200]}")
+        return m.group(0)
+
+    async def send_text(self, peer: str, text: str) -> None:
+        await self._connect()
+        await self._client.send_message(peer, text)
 
     async def close(self) -> None:
         await self.stop()

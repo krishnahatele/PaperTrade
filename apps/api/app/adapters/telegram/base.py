@@ -17,6 +17,7 @@ from typing import Any
 from pydantic import BaseModel, Field
 
 from app.adapters.base import AdapterHealth
+from app.core.errors import FeatureDisabledError
 
 
 class InboundMessage(BaseModel):
@@ -82,3 +83,19 @@ class TelegramAdapter(ABC):
 
     @abstractmethod
     async def fetch_history(self, channel_id: str, limit: int = 100) -> list[InboundMessage]: ...
+
+    async def fetch_between(
+        self, channel_id: str, start: datetime, end: datetime, limit: int = 5000
+    ) -> list[InboundMessage]:
+        """Messages sent in [start, end), oldest first (used by Replay)."""
+        msgs = await self.fetch_history(channel_id, limit)
+        return [m for m in msgs if start <= m.sent_at < end]
+
+    # --- acting as the user (opt-in helpers) -------------------------------
+    async def create_bot(self, name: str, username: str) -> str:
+        """Ask @BotFather for a new bot; returns its token."""
+        raise FeatureDisabledError("Log in to Telegram first.")
+
+    async def send_text(self, peer: str, text: str) -> None:
+        """Send a message as the logged-in user (e.g. ``/start`` to the new bot)."""
+        raise FeatureDisabledError("Log in to Telegram first.")

@@ -39,6 +39,11 @@ class EventType(StrEnum):
     ORDER_MODIFIED = "order.modified"
     EXIT_ALL = "trading.exit_all"
     KILL_SWITCH_CHANGED = "trading.kill_switch_changed"
+    NEWS_RECEIVED = "news.received"
+    NEWS_ALERT = "news.alert"  # a headline matched a watch keyword
+    MARKET_ALERT = "market.alert"  # a watched instrument moved sharply
+    REPLAY_FINISHED = "replay.finished"
+    BOT_LINKED = "bot.linked"
     SIGNAL_EXECUTION_SKIPPED = "signal.execution_skipped"
     MANUAL_PRICE_SET = "market.manual_price_set"
     BROKER_ACCOUNT_UPDATED = "broker_account.updated"

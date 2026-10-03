@@ -62,6 +62,26 @@ class BrokerRuntime(BaseModel):
     dhan_token_saved_at: datetime | None = None
 
 
+class BotNotify(BaseModel):
+    signals: bool = True  # new signals / waiting trades with Buy now / Cancel
+    trades: bool = True  # fills, targets, stops, closes
+    skipped: bool = True  # signals not taken (risk rules, kill switch, ...)
+    news: bool = True
+    market_moves: bool = True
+
+
+class BotRuntime(BaseModel):
+    """The private Telegram control bot (its token is in the secret store)."""
+
+    owner_chat_id: int | None = None
+    owner_name: str | None = None
+    username: str | None = None
+    link_code: str | None = None
+    link_expires_at: datetime | None = None
+    pinned_message_id: int | None = None
+    notify: BotNotify = Field(default_factory=BotNotify)
+
+
 class AuthRuntime(BaseModel):
     token_generation: int = 0
 
@@ -73,6 +93,7 @@ _KEYS: dict[type[BaseModel], str] = {
     ParsingRuntime: "parsing",
     AuthRuntime: "auth",
     BrokerRuntime: "broker",
+    BotRuntime: "bot",
 }
 
 

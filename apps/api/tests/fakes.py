@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Sequence
+from collections.abc import Awaitable, Callable, Sequence
 from datetime import UTC, datetime
 
 from app.adapters.base import AdapterHealth, AdapterState
@@ -33,6 +33,9 @@ class FakeTelegram(TelegramAdapter):
         self.handler: MessageHandler | None = None
         self.watched: list[str] = []
         self.history: dict[str, list[InboundMessage]] = {}
+        self.sent: list[tuple[str, str]] = []
+        self.created_bot: tuple[str, str] | None = None
+        self.on_send: Callable[[str, str], Awaitable[None]] | None = None
         FakeTelegram.instances.append(self)
 
     async def health(self) -> AdapterHealth:
@@ -80,6 +83,15 @@ class FakeTelegram(TelegramAdapter):
 
     async def fetch_history(self, channel_id: str, limit: int = 100) -> list[InboundMessage]:
         return self.history.get(channel_id, [])[-limit:]
+
+    async def create_bot(self, name: str, username: str) -> str:
+        self.created_bot = (name, username)
+        return "123456789:AAFakeTokenFakeTokenFakeTokenFakeTok"
+
+    async def send_text(self, peer: str, text: str) -> None:
+        self.sent.append((peer, text))
+        if self.on_send is not None:
+            await self.on_send(peer, text)
 
     async def push(self, channel_id: str, message_id: str, text: str) -> None:
         assert self.handler is not None, "not listening"

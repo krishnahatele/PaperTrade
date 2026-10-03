@@ -16,6 +16,7 @@ from app.events.bus import WILDCARD
 from app.events.store import EventStore
 from app.services.adapters import AdapterRegistry
 from app.services.auth import AuthService, LoginRateLimiter
+from app.services.bot import TelegramBotService
 from app.services.brokers import BrokerService
 from app.services.history import HistoryService
 from app.services.instruments import InstrumentService
@@ -48,6 +49,7 @@ class Container:
     history: HistoryService
     market: MarketDataService
     engine: TradingEngine
+    bot: TelegramBotService
     adapters: AdapterRegistry
     login_limiter: LoginRateLimiter = field(default_factory=LoginRateLimiter)
     _tasks: set[asyncio.Task[None]] = field(default_factory=set)
@@ -106,14 +108,19 @@ class Container:
             history=history,
             market=market,
             engine=engine,
+            bot=TelegramBotService(
+                secrets, runtime, bus, db.session_factory, engine, market, telegram
+            ),
             adapters=adapters,
         )
         if settings.background_services:
             container.pipeline.spawn = container.spawn
             container.engine.spawn = container.spawn
+            container.bot.spawn = container.spawn
         bus.subscribe(EventType.RAW_MESSAGE_RECEIVED, container.pipeline.on_raw_message)
         bus.subscribe(EventType.SIGNAL_CREATED, container.engine.on_signal_event)
         bus.subscribe(EventType.SIGNAL_STATUS_CHANGED, container.engine.on_signal_event)
+        bus.subscribe(WILDCARD, container.bot.on_event)
         return container
 
     def auth(self) -> AuthService:
@@ -142,6 +149,7 @@ class Container:
             await self.llm.reload()
             await self.market.reload()
             await self.engine.ensure_paper_account()
+            await self.bot.reload()
         except Exception:
             log.warning("startup.reload_failed", exc_info=True)
         if not self.settings.background_services:
@@ -149,6 +157,7 @@ class Container:
         self.spawn(self.telegram.boot(), "telegram.boot")
         self.spawn(self.engine.run_forever(), "trading.engine")
         self.spawn(self._housekeeping(), "housekeeping")
+        self.spawn(self.bot.run_forever(), "telegram.bot")
 
     async def _housekeeping(self) -> None:
         """Periodic chores: keep the Dhan token alive (renewed before 24 h)."""
@@ -165,4 +174,6 @@ class Container:
             t.cancel()
         await asyncio.gather(*self._tasks, return_exceptions=True)
         await self.telegram.shutdown()
+        if self.bot.api is not None:
+            await self.bot.api.close()
         await self.db.dispose()

@@ -17,6 +17,7 @@ class SecretName(StrEnum):
     TELEGRAM_API_HASH = "telegram.api_hash"
     TELEGRAM_PHONE = "telegram.phone"
     TELEGRAM_SESSION = "telegram.session"
+    TELEGRAM_BOT_TOKEN = "telegram.bot_token"  # noqa: S105 - name, not a secret
     KITE_API_KEY = "kite.api_key"
     KITE_API_SECRET = "kite.api_secret"  # noqa: S105
     KITE_ACCESS_TOKEN = "kite.access_token"  # noqa: S105
