@@ -6,19 +6,21 @@ import asyncio
 from dataclasses import dataclass, field
 
 from app.adapters.broker import DisabledBrokerAdapter
-from app.adapters.llm import DisabledLLMAdapter
 from app.adapters.market_data import DisabledMarketDataAdapter
 from app.core.config import Settings
 from app.core.crypto import SecretBox, load_master_key
 from app.core.logging import get_logger
 from app.db.session import Database
-from app.events import InMemoryEventBus
+from app.events import EventType, InMemoryEventBus
 from app.events.bus import WILDCARD
 from app.events.store import EventStore
 from app.services.adapters import AdapterRegistry
 from app.services.auth import AuthService, LoginRateLimiter
+from app.services.instruments import InstrumentService
+from app.services.llm import LLMService
 from app.services.runtime import RuntimeStore
 from app.services.secrets import SecretStore
+from app.services.signal_pipeline import SignalPipeline
 from app.services.telegram import TelegramService
 
 log = get_logger("marketos")
@@ -33,6 +35,9 @@ class Container:
     secrets: SecretStore
     runtime: RuntimeStore
     telegram: TelegramService
+    llm: LLMService
+    instruments: InstrumentService
+    pipeline: SignalPipeline
     adapters: AdapterRegistry
     login_limiter: LoginRateLimiter = field(default_factory=LoginRateLimiter)
     _tasks: set[asyncio.Task[None]] = field(default_factory=set)
@@ -44,30 +49,36 @@ class Container:
         bus.subscribe(WILDCARD, EventStore(db.session_factory))
         box = SecretBox(load_master_key(settings))
         secrets = SecretStore(db.session_factory, box)
+        runtime = RuntimeStore(db.session_factory)
         telegram = TelegramService(secrets, db.session_factory, bus)
+        llm = LLMService(secrets, runtime)
+        instruments = InstrumentService(db.session_factory, bus)
 
-        broker, market_data, llm = (
-            DisabledBrokerAdapter(),
-            DisabledMarketDataAdapter(),
-            DisabledLLMAdapter(),
-        )
+        broker, market_data = DisabledBrokerAdapter(), DisabledMarketDataAdapter()
         adapters = AdapterRegistry(
             broker=lambda: broker,
             market_data=lambda: market_data,
             telegram=lambda: telegram.adapter,
-            llm=lambda: llm,
-            health_overrides={"telegram": telegram.health},
+            llm=lambda: llm.adapter,
+            health_overrides={"telegram": telegram.health, "llm": llm.health},
         )
-        return cls(
+        container = cls(
             settings=settings,
             db=db,
             bus=bus,
             box=box,
             secrets=secrets,
-            runtime=RuntimeStore(db.session_factory),
+            runtime=runtime,
             telegram=telegram,
+            llm=llm,
+            instruments=instruments,
+            pipeline=SignalPipeline(db.session_factory, bus, runtime, llm, instruments),
             adapters=adapters,
         )
+        if settings.background_services:
+            container.pipeline.spawn = container.spawn
+        bus.subscribe(EventType.RAW_MESSAGE_RECEIVED, container.pipeline.on_raw_message)
+        return container
 
     def auth(self) -> AuthService:
         return AuthService(
@@ -91,6 +102,10 @@ class Container:
         task.add_done_callback(_done)
 
     async def start_background(self) -> None:
+        try:
+            await self.llm.reload()
+        except Exception:
+            log.warning("llm.reload_failed", exc_info=True)
         if not self.settings.background_services:
             return
         self.spawn(self.telegram.boot(), "telegram.boot")

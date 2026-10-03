@@ -35,7 +35,27 @@ export type Signal = {
   confidence: string | null;
   status: string;
   parser: string;
+  raw_message_id: string | null;
+  notes: string | null;
+  details: { underlying?: string | null; instrument_type?: string | null; strike?: string | null; expiry_text?: string | null; warnings?: string[]; llm_error?: string };
   created_at: string;
+};
+
+export type ParsePreview = {
+  parser: string | null;
+  is_signal: boolean;
+  reason: string | null;
+  side: string | null;
+  symbol_text: string | null;
+  instrument_type: string | null;
+  entry_low: string | null;
+  entry_high: string | null;
+  stop_loss: string | null;
+  targets: string[];
+  confidence: string;
+  warnings: string[];
+  llm_error: string | null;
+  instrument_tradingsymbol: string | null;
 };
 
 export type Order = {

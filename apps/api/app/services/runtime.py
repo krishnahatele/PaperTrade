@@ -37,7 +37,7 @@ class TradingRuntime(BaseModel):
 
 class ParsingRuntime(BaseModel):
     mode: ParserMode = ParserMode.RULES_THEN_LLM
-    llm_model: str = "claude-sonnet-5-5"
+    llm_model: str = "claude-opus-5-5"
     llm_provider: str = "anthropic"
 
 

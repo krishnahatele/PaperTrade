@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import date
 from decimal import Decimal
 
-from sqlalchemy import BigInteger, String, UniqueConstraint
+from sqlalchemy import BigInteger, Index, String, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db.base import Base, TimestampMixin, UUIDPrimaryKeyMixin, str_enum
@@ -14,7 +14,11 @@ class Instrument(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     """A tradable contract (equity, future, option, index)."""
 
     __tablename__ = "instruments"
-    __table_args__ = (UniqueConstraint("exchange", "tradingsymbol"),)
+    __table_args__ = (
+        UniqueConstraint("exchange", "tradingsymbol"),
+        # Derivative lookup by underlying: name + type + nearest expiry.
+        Index("ix_instruments_name_type_expiry", "name", "instrument_type", "expiry"),
+    )
 
     exchange: Mapped[Exchange] = mapped_column(str_enum(Exchange, "exchange"))
     tradingsymbol: Mapped[str] = mapped_column(String(64))

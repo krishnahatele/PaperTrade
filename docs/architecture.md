@@ -1,7 +1,7 @@
 # MarketOS architecture
 
-> Status: **Phase 0–2 implemented** (foundation, encrypted credentials and auth, Telegram ingestion).
-> Signal parsing, market data, paper execution and live Kite routing are designed but not yet built.
+> Status: **Phase 0–3 implemented** (foundation, encrypted credentials and auth, Telegram ingestion,
+> signal parsing). Market data, paper execution and live Kite routing are designed but not yet built.
 
 ## 1. What MarketOS is
 
@@ -134,6 +134,32 @@ optionally the 2FA password, after which the session string is stored. On startu
 source. Each new post becomes a `RawMessage` (deduplicated by `(source_id, external_message_id)`)
 and a `raw_message.received` event. Edits and deletions are not processed yet. Health is served
 from cached state so status endpoints never block on Telegram's network.
+
+### Signal parsing (Phase 3)
+
+`SignalPipeline` subscribes to `raw_message.received` and runs in the background (inline in tests):
+
+1. **Rules parser** (`app/parsing/rules.py`): normalises text (case, emojis, ₹, `24,500`, index
+   aliases such as BANK NIFTY → BANKNIFTY, CALL/PUT → CE/PE) and extracts side, instrument
+   (equity, `NIFTY 24500 CE`, `TATAMOTORS FUT`, optional expiry month), entry or range, SL and
+   targets (`TGT 140/160`, `T1 … T2 …`). Follow-ups such as "target hit" or "book profit" are
+   ignored. Verb-less option calls are assumed BUY with a warning. Confidence comes from
+   completeness, and is cut when levels are inconsistent (e.g. BUY with SL above entry).
+2. **AI fallback** (`app/parsing/llm.py`): only when rules confidence is below 0.8, the message
+   looks trade-like, and the message is not stale. It calls Claude through `AnthropicLLMAdapter`
+   (default `claude-opus-5-5`, effort `low`, strict JSON schema output, server-side refusal
+   fallback). The output is treated as untrusted and re-validated. At most 2 concurrent calls.
+   Modes: rules only, rules then AI (default), AI only.
+3. **Instrument resolution** (`InstrumentService.resolve`): equities by NSE then BSE symbol; F&O
+   by underlying + type (+ strike) at the nearest unexpired expiry (respecting a stated month).
+   The instrument master comes from Kite's public dump (`POST /instruments/sync`).
+4. **Status**: `validated` when the instrument resolved, the entry and SL are present, levels are
+   consistent and confidence ≥ the `min_confidence` setting. `expired` when the message is older
+   than the signal TTL (catch-up after downtime never creates live signals). Otherwise `new`
+   (needs review in the UI).
+
+On startup `TelegramService.boot` also **catches up** on the last 50 messages of every enabled
+channel (deduplicated), so messages posted while the app was off are not lost.
 
 ## 4. Frontend
 

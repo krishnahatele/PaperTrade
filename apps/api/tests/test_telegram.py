@@ -92,7 +92,7 @@ async def test_channels_ingest_dedupe_and_backfill(tg: tuple[AsyncClient, Contai
     msgs = (await c.get(f"/api/v1/signal-sources/{source_id}/messages")).json()
     assert msgs["total"] == 1
     assert msgs["items"][0]["content"].startswith("BUY INFY")
-    assert msgs["items"][0]["status"] == "pending"
+    assert msgs["items"][0]["status"] == "parsed"  # parsed into a signal on arrival
 
     events = (await c.get("/api/v1/events", params={"event_type": "raw_message.received"})).json()
     assert events["total"] == 1

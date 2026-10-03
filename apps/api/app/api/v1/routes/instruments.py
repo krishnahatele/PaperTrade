@@ -3,8 +3,9 @@ from __future__ import annotations
 import uuid
 
 from fastapi import APIRouter, Query, status
+from pydantic import BaseModel
 
-from app.api.deps import BusDep, PageDep, SessionDep
+from app.api.deps import BusDep, ContainerDep, PageDep, SessionDep
 from app.models import Instrument
 from app.models.enums import Exchange
 from app.schemas.common import Page
@@ -49,3 +50,16 @@ async def get_instrument(instrument_id: uuid.UUID, session: SessionDep) -> Instr
 @router.post("", response_model=InstrumentRead, status_code=status.HTTP_201_CREATED)
 async def create_instrument(data: InstrumentCreate, session: SessionDep, bus: BusDep) -> Instrument:
     return await InstrumentService(session, bus).create(data)
+
+
+class SyncBody(BaseModel):
+    exchanges: list[Exchange] = [Exchange.NSE, Exchange.NFO]
+
+
+@router.post(
+    "/sync",
+    response_model=dict[str, int],
+    summary="Download the instrument list from Kite (public, no login needed)",
+)
+async def sync_instruments(container: ContainerDep, body: SyncBody | None = None) -> dict[str, int]:
+    return await container.instruments.sync((body or SyncBody()).exchanges)

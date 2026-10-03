@@ -47,3 +47,5 @@ class Signal(UUIDPrimaryKeyMixin, TimestampMixin, Base):
         str_enum(SignalParser, "signal_parser"), default=SignalParser.MANUAL
     )
     notes: Mapped[str | None] = mapped_column(Text)
+    # Parser extras: underlying, instrument type guess, strike, expiry text, warnings.
+    details: Mapped[dict[str, Any]] = mapped_column(default=dict, server_default="{}")

@@ -89,6 +89,7 @@ Telegram errors: 403 `feature_disabled` (credentials missing), 400 `telegram_log
 | GET | `/api/v1/instruments` | Filters: `exchange`, `q` (symbol prefix, case-insensitive) |
 | POST | `/api/v1/instruments` | Body: `exchange`, `tradingsymbol`, `instrument_type`, optional `name`, `instrument_token`, `segment`, `expiry`, `strike`, `lot_size`, `tick_size` |
 | GET | `/api/v1/instruments/{id}` | |
+| POST | `/api/v1/instruments/sync` | `{exchanges: ["NSE","NFO"]}`. Downloads Kite's public instrument list (no login) and upserts it. Expired contracts are marked inactive. Returns counts per exchange |
 
 ## Broker accounts
 
@@ -115,7 +116,10 @@ Telegram errors: 403 `feature_disabled` (credentials missing), 400 `telegram_log
 |---|---|---|
 | GET | `/api/v1/signals` | Filters: `status`, `source_id`. Newest first |
 | POST | `/api/v1/signals` | Manual entry. `source_id`, `symbol_text`, `side`, optional `instrument_id`, `entry_low`, `entry_high` (low ≤ high), `stop_loss`, `targets[]`, `notes`. Does **not** trigger execution |
-| GET | `/api/v1/signals/{id}` | |
+| GET | `/api/v1/signals/{id}` | Includes `details` (underlying, type, strike, expiry text, warnings, AI error) |
+| PATCH | `/api/v1/signals/{id}` | Review: `status` (new → validated/rejected, validated → new/rejected/cancelled, rejected/expired → new), `instrument_id`, `entry_low`, `entry_high`, `stop_loss`, `targets`, `notes`. Validating requires an instrument and a stop loss |
+| POST | `/api/v1/signals/parse-preview` | `{text, use_llm}`. Runs the parser and returns what it read, without storing anything |
+| POST | `/api/v1/messages/{id}/parse` | Re-runs the parser on a stored raw message and returns the new signal (or `null` if it isn't a signal) |
 
 Example:
 
@@ -145,4 +149,6 @@ There are intentionally no endpoints that create, modify or cancel orders in thi
 
 Event types emitted today: `system.started`, `system.stopping`, `instrument.created`,
 `signal_source.created|updated|deleted`, `broker_account.created`, `signal.created`,
-`raw_message.received`, `integration.updated`, `settings.updated`.
+`raw_message.received`, `raw_message.processed`, `signal.status_changed`, `instruments.synced`,
+`integration.updated`, `settings.updated`. Events caused by one Telegram message share its
+`correlation_id`.

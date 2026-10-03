@@ -115,10 +115,12 @@ class TelegramService:
                 self.last_error = f"{type(exc).__name__}: {exc}"
                 log.exception("telegram.start_failed")
 
-    async def boot(self) -> None:
+    async def boot(self, catch_up_limit: int = 50) -> None:
         try:
             await self.reload()
             await self.start_listening()
+            if self.listening_channels:
+                await self.catch_up(catch_up_limit)
         except Exception as exc:
             self.last_error = f"{type(exc).__name__}: {exc}"
             log.exception("telegram.boot_failed")
@@ -204,6 +206,27 @@ class TelegramService:
             if await self._store(source.id, m):
                 count += 1
         return count
+
+    async def catch_up(self, limit: int = 50) -> int:
+        """Store messages posted while the app was offline (deduplicated)."""
+        async with self.sf() as s:
+            sources = list(
+                await s.scalars(
+                    select(SignalSource).where(
+                        SignalSource.kind == SignalSourceKind.TELEGRAM,
+                        SignalSource.is_enabled.is_(True),
+                        SignalSource.external_id.is_not(None),
+                    )
+                )
+            )
+        stored = 0
+        for src in sources:
+            try:
+                stored += await self.backfill(src.id, limit)
+            except Exception:
+                log.warning("telegram.catch_up_failed", source=str(src.id), exc_info=True)
+        log.info("telegram.caught_up", stored=stored, sources=len(sources))
+        return stored
 
     async def ingest(self, message: InboundMessage) -> None:
         """Handler for live messages from the adapter."""

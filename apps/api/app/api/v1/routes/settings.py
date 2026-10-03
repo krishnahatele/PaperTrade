@@ -53,6 +53,7 @@ async def patch_parsing(changes: dict[str, Any], container: ContainerDep) -> Par
         updated = await container.runtime.update(ParsingRuntime, **allowed)
     except ValidationError as exc:
         raise InvalidInputError(str(exc.errors()[0]["msg"])) from exc
+    await container.llm.reload()
     await container.bus.publish(
         Event(
             type=EventType.SETTINGS_UPDATED,

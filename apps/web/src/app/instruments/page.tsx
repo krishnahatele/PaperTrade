@@ -2,18 +2,36 @@
 
 import { useState } from "react";
 import { DataTable } from "@/components/DataTable";
+import { Button, useAction } from "@/components/forms";
+import { apiSend } from "@/lib/api";
 import { PageHeader } from "@/components/ui";
 import { formatNumber } from "@/lib/format";
 import type { Instrument } from "@/lib/types";
 
 export default function InstrumentsPage() {
   const [q, setQ] = useState("");
+  const [version, setVersion] = useState(0);
+  const sync = useAction();
   return (
     <>
       <PageHeader
         title="Instruments"
         description="Tradable contracts known to MarketOS."
         actions={
+          <div className="flex flex-wrap items-center gap-2">
+            {sync.view}
+            <Button
+              variant="secondary"
+              onClick={() =>
+                sync.run(async () => {
+                  const r = await apiSend<Record<string, number>>("/api/v1/instruments/sync", "POST", { exchanges: ["NSE", "NFO"] });
+                  sync.setMessage({ tone: "ok", text: `Synced ${Object.entries(r).map(([k, v]) => `${k} ${v}`).join(", ")}` });
+                  setVersion((v) => v + 1);
+                })
+              }
+            >
+              Sync from Kite
+            </Button>
           <input
             type="search"
             value={q}
@@ -22,13 +40,14 @@ export default function InstrumentsPage() {
             aria-label="Search symbol"
             className="w-56 rounded-md border border-border bg-panel px-3 py-1.5 text-sm outline-none focus:border-accent"
           />
+          </div>
         }
       />
       <DataTable<Instrument>
-        key={q}
+        key={`${q}:${version}`}
         path="/api/v1/instruments"
         query={q ? `&q=${encodeURIComponent(q)}` : ""}
-        emptyText="No instruments."
+        emptyText="No instruments yet. Click “Sync from Kite” to download the NSE and F&O list (takes a minute)."
         columns={[
           { key: "ex", header: "Exchange", render: (i) => i.exchange },
           { key: "sym", header: "Symbol", render: (i) => <span className="font-medium">{i.tradingsymbol}</span> },

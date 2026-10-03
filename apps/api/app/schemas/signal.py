@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import uuid
 from decimal import Decimal
+from typing import Any
 
 from pydantic import BaseModel, Field, model_validator
 
@@ -40,3 +41,42 @@ class SignalRead(SignalBase, ReadModel):
     confidence: Decimal | None
     status: SignalStatus
     parser: SignalParser
+    details: dict[str, Any]
+
+
+class SignalReview(BaseModel):
+    """Manual review: approve/reject, or fix fields the parser got wrong."""
+
+    status: SignalStatus | None = None
+    instrument_id: uuid.UUID | None = None
+    entry_low: Decimal | None = Field(default=None, gt=0)
+    entry_high: Decimal | None = Field(default=None, gt=0)
+    stop_loss: Decimal | None = Field(default=None, gt=0)
+    targets: list[Decimal] | None = None
+    notes: str | None = None
+
+
+class ParsePreviewBody(BaseModel):
+    text: str = Field(min_length=1, max_length=4000)
+    use_llm: bool = True
+
+
+class ParsePreview(BaseModel):
+    parser: SignalParser | None
+    is_signal: bool
+    reason: str | None
+    side: str | None
+    symbol_text: str | None
+    underlying: str | None
+    instrument_type: str | None
+    strike: Decimal | None
+    expiry_text: str | None
+    entry_low: Decimal | None
+    entry_high: Decimal | None
+    stop_loss: Decimal | None
+    targets: list[Decimal]
+    confidence: Decimal
+    warnings: list[str]
+    llm_error: str | None
+    instrument_id: uuid.UUID | None
+    instrument_tradingsymbol: str | None

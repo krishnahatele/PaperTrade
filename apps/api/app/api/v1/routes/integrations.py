@@ -109,6 +109,7 @@ async def delete_kite(container: ContainerDep) -> None:
 async def put_llm(body: LLMCredentials, container: ContainerDep) -> IntegrationsStatus:
     if body.api_key:
         await container.secrets.put(N.LLM_API_KEY, body.api_key)
+        await container.llm.reload()
         await _audit(container, "llm", "updated", ["api_key"])
     return await get_integrations(container)
 
@@ -116,4 +117,5 @@ async def put_llm(body: LLMCredentials, container: ContainerDep) -> Integrations
 @router.delete("/llm", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_llm(container: ContainerDep) -> None:
     await container.secrets.delete(N.LLM_API_KEY)
+    await container.llm.reload()
     await _audit(container, "llm", "cleared", [])

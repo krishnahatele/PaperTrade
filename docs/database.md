@@ -6,6 +6,7 @@ PostgreSQL 16. The schema is managed by Alembic (`apps/api/alembic`).
 |---|---|
 | `0001` | instruments, broker_accounts, signal_sources, raw_messages, signals, orders, trades, positions, events |
 | `0002` | `secrets` (name PK, Fernet `ciphertext`), `app_settings` (key PK, JSONB `value`) |
+| `0003` | `signals.details` (JSONB parser extras), index `ix_instruments_name_type_expiry` for F&O lookup |
 
 ## Conventions
 
@@ -88,6 +89,7 @@ erDiagram
         varchar status
         varchar parser "manual|rule|llm"
         text notes
+        jsonb details
     }
     orders {
         uuid id PK

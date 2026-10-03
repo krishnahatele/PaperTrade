@@ -3,6 +3,8 @@
 import Link from "next/link";
 import { useParams } from "next/navigation";
 import { DataTable } from "@/components/DataTable";
+import { Button } from "@/components/forms";
+import { apiSend } from "@/lib/api";
 import { StatusPill, toneForState } from "@/components/StatusPill";
 import { Notice, PageHeader } from "@/components/ui";
 import { formatDateTime } from "@/lib/format";
@@ -36,6 +38,15 @@ export default function SourceDetailPage() {
             render: (m) => <p className="max-w-2xl whitespace-pre-wrap break-words text-sm">{m.content}</p>,
           },
           { key: "status", header: "Status", render: (m) => <StatusPill tone={toneForState(m.status)}>{m.status}</StatusPill> },
+          {
+            key: "act",
+            header: "",
+            render: (m) => (
+              <Button variant="secondary" onClick={() => apiSend(`/api/v1/messages/${m.id}/parse`, "POST").then(() => alert("Parsed. See the Signals page.")).catch((e: Error) => alert(e.message))}>
+                Parse again
+              </Button>
+            ),
+          },
         ]}
       />
     </>
