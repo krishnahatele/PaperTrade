@@ -1,7 +1,4 @@
-"""MarketDataAdapter: quotes and streaming ticks.
-
-Planned implementation: Kite Ticker (WebSocket). Not implemented in Phase 0.
-"""
+"""MarketDataAdapter: last-traded prices (polled). Implementations: Kite, Dhan."""
 
 from __future__ import annotations
 
@@ -19,6 +16,9 @@ from app.models.enums import Exchange
 class InstrumentKey(BaseModel):
     exchange: Exchange
     tradingsymbol: str
+    # Broker-specific ids, filled when known (Dhan quotes need these).
+    security_id: str | None = None
+    segment: str | None = None
 
 
 class Quote(BaseModel):

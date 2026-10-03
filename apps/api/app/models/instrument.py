@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from datetime import date
 from decimal import Decimal
+from typing import Any
 
 from sqlalchemy import BigInteger, Index, String, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column
@@ -34,3 +35,5 @@ class Instrument(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     lot_size: Mapped[int] = mapped_column(default=1)
     tick_size: Mapped[Decimal] = mapped_column(default=Decimal("0.05"))
     is_active: Mapped[bool] = mapped_column(default=True)
+    # Other brokers' ids for this contract, e.g. {"dhan": "49081"}.
+    broker_refs: Mapped[dict[str, Any]] = mapped_column(default=dict, server_default="{}")

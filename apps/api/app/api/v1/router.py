@@ -6,6 +6,7 @@ from app.api.deps import require_auth
 from app.api.v1.routes import (
     auth,
     broker_accounts,
+    brokers,
     events,
     instruments,
     integrations,
@@ -37,4 +38,5 @@ protected.include_router(telegram.router)
 protected.include_router(messages.router)
 protected.include_router(llm.router)
 protected.include_router(market.router)
+protected.include_router(brokers.router)
 api_router.include_router(protected)

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from datetime import datetime
 from decimal import Decimal
 from enum import StrEnum
 from typing import Any, TypeVar
@@ -9,6 +10,7 @@ from typing import Any, TypeVar
 from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
+from app.adapters.broker.providers import BrokerProvider
 from app.adapters.llm.providers import LLMProvider
 from app.models import AppSetting
 
@@ -44,6 +46,22 @@ class ParsingRuntime(BaseModel):
     llm_base_url: str | None = Field(default=None, max_length=500)
 
 
+class DataSource(StrEnum):
+    AUTO = "auto"  # Kite if logged in, else Dhan
+    KITE = "kite"
+    DHAN = "dhan"
+    MANUAL = "manual"  # practice prices typed in by hand
+
+
+class BrokerRuntime(BaseModel):
+    # The broker you trade with. Orders stay paper in this build; this picks
+    # whose positions/funds are shown and where live orders would go later.
+    primary: BrokerProvider = BrokerProvider.PAPER
+    market_data: DataSource = DataSource.AUTO
+    history: DataSource = DataSource.AUTO
+    dhan_token_saved_at: datetime | None = None
+
+
 class AuthRuntime(BaseModel):
     token_generation: int = 0
 
@@ -54,6 +72,7 @@ _KEYS: dict[type[BaseModel], str] = {
     TradingRuntime: "trading",
     ParsingRuntime: "parsing",
     AuthRuntime: "auth",
+    BrokerRuntime: "broker",
 }
 
 

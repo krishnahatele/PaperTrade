@@ -29,8 +29,8 @@ from app.schemas.trading import (
     TradePlanRead,
     TradeUpdateBody,
 )
-from app.services.repository import Repository
 from app.services.instruments import segment_of
+from app.services.repository import Repository
 from app.services.risk import AccountRiskSettings, TargetLeg
 from app.services.trading import SkipError
 

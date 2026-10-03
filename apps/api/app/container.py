@@ -16,6 +16,8 @@ from app.events.bus import WILDCARD
 from app.events.store import EventStore
 from app.services.adapters import AdapterRegistry
 from app.services.auth import AuthService, LoginRateLimiter
+from app.services.brokers import BrokerService
+from app.services.history import HistoryService
 from app.services.instruments import InstrumentService
 from app.services.kite import KiteService
 from app.services.llm import LLMService
@@ -42,6 +44,8 @@ class Container:
     instruments: InstrumentService
     pipeline: SignalPipeline
     kite: KiteService
+    brokers: BrokerService
+    history: HistoryService
     market: MarketDataService
     engine: TradingEngine
     adapters: AdapterRegistry
@@ -61,7 +65,9 @@ class Container:
         instruments = InstrumentService(db.session_factory, bus)
 
         kite = KiteService(secrets, bus)
-        market = MarketDataService(kite)
+        brokers = BrokerService(secrets, runtime, bus, kite)
+        history = HistoryService(kite, brokers, runtime)
+        market = MarketDataService(kite, brokers=brokers, runtime=runtime)
         engine = TradingEngine(db.session_factory, bus, runtime, market)
 
         async def broker_health() -> AdapterHealth:
@@ -96,6 +102,8 @@ class Container:
             instruments=instruments,
             pipeline=SignalPipeline(db.session_factory, bus, runtime, llm, instruments),
             kite=kite,
+            brokers=brokers,
+            history=history,
             market=market,
             engine=engine,
             adapters=adapters,
@@ -140,6 +148,17 @@ class Container:
             return
         self.spawn(self.telegram.boot(), "telegram.boot")
         self.spawn(self.engine.run_forever(), "trading.engine")
+        self.spawn(self._housekeeping(), "housekeeping")
+
+    async def _housekeeping(self) -> None:
+        """Periodic chores: keep the Dhan token alive (renewed before 24 h)."""
+        while True:
+            try:
+                if await self.brokers.renew_dhan_if_due():
+                    await self.market.reload()
+            except Exception:
+                log.warning("housekeeping.failed", exc_info=True)
+            await asyncio.sleep(30 * 60)
 
     async def close(self) -> None:
         for t in list(self._tasks):

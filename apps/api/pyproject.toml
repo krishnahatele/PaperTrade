@@ -50,6 +50,7 @@ known-third-party = ["alembic"]
 
 [tool.ruff.lint.per-file-ignores]
 "tests/**" = ["S101", "S105", "S106"]
+"tests/test_brokers.py" = ["E501"]  # fixture CSV rows
 
 [tool.mypy]
 python_version = "3.11"
