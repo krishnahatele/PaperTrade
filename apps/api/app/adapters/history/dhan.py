@@ -24,6 +24,9 @@ from app.core.errors import MarketOSError
 from app.models import Instrument
 from app.models.enums import InstrumentType
 
+# Index options that only have monthly expiries (NSE/BSE rules since Nov 2024).
+MONTHLY_ONLY = {"BANKNIFTY", "FINNIFTY", "MIDCPNIFTY", "BANKEX"}
+
 
 def _candles(data: dict[str, Any], strike: Decimal | None = None) -> list[Candle]:
     ts = data.get("timestamp") or []
@@ -91,11 +94,12 @@ class DhanHistoryAdapter(HistoryAdapter):
                 f"No expired-option data for {inst.tradingsymbol} (index options only)."
             )
         kind = "CALL" if inst.instrument_type is InstrumentType.CE else "PUT"
-        flag = (
-            "MONTH"
-            if inst.expiry and (inst.expiry + timedelta(days=7)).month != inst.expiry.month
-            else "WEEK"
-        )
+        if inst.expiry is None:  # contract not in our list: go by the index's expiry cycle
+            flag = "MONTH" if und in MONTHLY_ONLY else "WEEK"
+        else:
+            flag = (
+                "MONTH" if (inst.expiry + timedelta(days=7)).month != inst.expiry.month else "WEEK"
+            )
         found: dict[Any, Candle] = {}
         for off in range(-self.ATM_SCAN, self.ATM_SCAN + 1):
             strike = "ATM" if off == 0 else f"ATM{off:+d}"

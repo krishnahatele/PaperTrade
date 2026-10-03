@@ -28,6 +28,8 @@ async def test_resolve_equity_fno_and_commodity(db_client: AsyncClient) -> None:
     svc = ctr(db_client).instruments
     cases = {
         "BUY RELIANCE 2450 SL 2420 TGT 2500": ("RELIANCE", Segment.EQUITY),
+        "BUY Reliance Industries @ 2450 SL 2420": ("RELIANCE", Segment.EQUITY),
+        "BUY INFOSYS 1500 SL 1480": ("INFY", Segment.EQUITY),
         "BUY NIFTY 24500 CE ABOVE 120 SL 100 TGT 140": ("NIFTY2610824500CE", Segment.FNO),
         "BUY CRUDE OIL 6400 SL 6350 TGT 6450": ("CRUDEOIL99JANFUT", Segment.COMMODITY),
         "BUY CRUDEOIL 6500 CE @ 120 SL 100 TGT 150": ("CRUDEOIL99JAN6500CE", Segment.COMMODITY),
@@ -46,3 +48,14 @@ async def test_resolve_as_of_past_day_finds_expired_contract(db_client: AsyncCli
     inst = await svc.resolve(p, as_of=date(2019, 12, 30))
     assert inst is not None
     assert inst.tradingsymbol == "NIFTY2001024500CE"  # expired since, but live on that day
+
+
+async def test_unresolved_reasons(db_client: AsyncClient) -> None:
+    await synced(db_client)
+    svc = ctr(db_client).instruments
+    day = date(2026, 10, 1)
+    why = await svc.explain_unresolved(parse_rules("BUY SENSEX 71800 CE @ 200 SL 150"), day)
+    assert "no SENSEX contracts" in why
+    assert "BFO" in why
+    why = await svc.explain_unresolved(parse_rules("BUY NIFTY 22500 CE @ 200 SL 150"), day)
+    assert "NIFTY 22500 CE is not in your instrument list" in why

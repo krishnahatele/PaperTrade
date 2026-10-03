@@ -111,7 +111,55 @@ STOPWORDS = {
     "AVERAGE",
     "PRICE",
     "LTP",
+    # chatter that sits next to calls in channel posts
+    "PLEASE",
+    "PLZ",
+    "JOIN",
+    "FREE",
+    "PAID",
+    "CHANNEL",
+    "GROUP",
+    "MEMBERS",
+    "CLICK",
+    "LINK",
+    "CONTACT",
+    "WHATSAPP",
+    "VIP",
+    "PREMIUM",
+    "GOOD",
+    "MORNING",
+    "GM",
+    "LEVEL",
+    "LEVELS",
+    "SETUP",
+    "VIEW",
+    "WATCH",
+    "STOCK",
+    "SHARE",
+    "SHARES",
+    "CASH",
+    "EQUITY",
+    "SWING",
+    "SCALP",
+    "SCALPING",
+    "AGAIN",
+    "IF",
+    "SUSTAINS",
+    "CLOSING",
+    "BASIS",
+    "WITH",
+    "LTD",
+    "LIMITED",
+    "OUR",
+    "YOUR",
+    "WE",
+    "US",
+    "ME",
+    "IT",
+    "THIS",
+    "IS",
 } | set(MONTHS.split("|"))
+NAME_JOINERS = {"OF", "AND", "&"}  # "BANK OF BARODA", "LARSEN & TOUBRO"
 
 INDEX_ALIASES = {
     "NIFTY50": "NIFTY",
@@ -208,7 +256,24 @@ def _instrument(
     m = re.search(rf"\b([A-Z][A-Z&-]{{1,19}})\s+(?:({MONTHS})\s+)?FUT(?:URES?)?\b", t)
     if m and m.group(1) not in STOPWORDS:
         return f"{m.group(1)} FUT", m.group(1), InstrumentType.FUT, None, m.group(2)
-    # Equity: first plausible ticker token
+    # Equity: the name right after the verb ("BUY Belrise Industries @ 242"), which may
+    # be a company name rather than the NSE symbol; resolution matches both.
+    m = re.search(r"\b(?:BUY|SELL|LONG|SHORT)\b\s+((?:(?:[A-Z][A-Z&.-]*|&)\s*){1,5})", t)
+    if m:
+        words: list[str] = []
+        for tok in m.group(1).split():
+            if tok in NAME_JOINERS and words:
+                words.append(tok)
+                continue
+            if tok in STOPWORDS or re.fullmatch(r"T\d+", tok):
+                break
+            words.append(tok)
+        while words and words[-1] in NAME_JOINERS:
+            words.pop()
+        if words:
+            name = " ".join(words)
+            return name, name, InstrumentType.EQ, None, None
+    # Otherwise the first plausible ticker token ("RELIANCE BUY 2450")
     for tok in re.findall(r"\b[A-Z][A-Z&-]{1,19}\b", t):
         if tok not in STOPWORDS and not re.fullmatch(r"T\d+", tok):
             return tok, tok, InstrumentType.EQ, None, None
@@ -239,8 +304,18 @@ def _entry(t: str, strike: Decimal | None) -> tuple[Decimal | None, Decimal | No
     return None, None
 
 
+def _call_part(text: str) -> str:
+    """Drop header lines above the first line that holds a BUY/SELL and a price, so a
+    banner like "SAHI Trade Alert : 1 Oct" isn't read as the stock."""
+    lines = text.splitlines()
+    for i, line in enumerate(lines):
+        if re.search(r"\b(buy|sell|long|short)\b", line, re.IGNORECASE) and re.search(r"\d", line):
+            return "\n".join(lines[i:])
+    return text
+
+
 def parse_rules(text: str) -> ParsedSignal:
-    t = normalise(text)
+    t = normalise(_call_part(text))
     if _FOLLOW_UP.search(t) and not re.search(r"\b(BUY|SELL)\b", t):
         return ParsedSignal(is_signal=False, reason="follow-up / status update, not a new signal")
     side = _side(t)

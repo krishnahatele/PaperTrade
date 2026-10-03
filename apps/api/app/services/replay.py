@@ -13,6 +13,7 @@ from __future__ import annotations
 import uuid
 from collections.abc import Awaitable, Callable
 from datetime import UTC, date, datetime, time, timedelta
+from decimal import Decimal
 from enum import StrEnum
 from typing import Any
 from zoneinfo import ZoneInfo
@@ -21,13 +22,16 @@ from pydantic import BaseModel, Field, model_validator
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
+from app.adapters.broker.dhan import INDEX_SECURITY_IDS
 from app.adapters.history.base import Candle, HistoryAdapter, HistoryUnavailableError
 from app.adapters.telegram.base import InboundMessage
 from app.core.errors import InvalidInputError, NotFoundError
 from app.core.logging import get_logger
 from app.events import Event, EventBus, EventType
-from app.models import RawMessage, ReplayRun, ReplayTrade, SignalSource
+from app.models import Instrument, RawMessage, ReplayRun, ReplayTrade, SignalSource
 from app.models.enums import (
+    Exchange,
+    InstrumentType,
     ReplayOutcome,
     ReplayStatus,
     Segment,
@@ -45,6 +49,26 @@ from app.services.telegram import TelegramService
 from app.services.trading import TradingEngine
 
 log = get_logger("marketos.replay")
+
+# Used only when the instrument list has no contract of that index at all.
+INDEX_LOT_FALLBACK = {
+    "NIFTY": 75,
+    "BANKNIFTY": 35,
+    "FINNIFTY": 65,
+    "MIDCPNIFTY": 140,
+    "SENSEX": 20,
+    "BANKEX": 30,
+}
+
+
+def _is_index_option(p: ParsedSignal) -> bool:
+    return (
+        p.instrument_type in (InstrumentType.CE, InstrumentType.PE)
+        and p.strike is not None
+        and str(p.underlying or "").upper() in INDEX_SECURITY_IDS
+    )
+
+
 IST = ZoneInfo("Asia/Kolkata")
 MAX_DAYS = 31
 
@@ -197,7 +221,7 @@ class ReplayService:
                 "price_sources": [h.name for h in sources],
             },
         )
-        candle_cache: dict[tuple[uuid.UUID, date, date], tuple[list[Candle], str] | str] = {}
+        candle_cache: dict[tuple[str, date, date], tuple[list[Candle], str] | str] = {}
         used: dict[str, int] = {}
         rows: list[ReplayTrade] = []
         for n, (src, m) in enumerate(messages, start=1):
@@ -294,6 +318,40 @@ class ReplayService:
         out.sort(key=lambda x: x[1].sent_at)
         return out, origin
 
+    async def _expired_index_option(
+        self, p: ParsedSignal, sources: list[HistoryAdapter]
+    ) -> Instrument | None:
+        """An index option that isn't in the instrument list (usually a weekly that
+        expired before the last sync). With Dhan as a price source we can still
+        replay it from Dhan's expired-options data, using the strike from the message
+        and the nearest expiry of that day. Not saved to the database."""
+        if not _is_index_option(p) or not any(h.name == "dhan" for h in sources):
+            return None
+        und = str(p.underlying).upper()
+        async with self.sf() as s:
+            lot = await s.scalar(
+                select(Instrument.lot_size)
+                .where(
+                    Instrument.name == und,
+                    Instrument.instrument_type.in_([InstrumentType.CE, InstrumentType.PE]),
+                )
+                .order_by(Instrument.expiry.desc())
+                .limit(1)
+            )
+        typ = p.instrument_type or InstrumentType.CE
+        return Instrument(
+            id=uuid.uuid4(),
+            exchange=Exchange.BFO if und in ("SENSEX", "BANKEX") else Exchange.NFO,
+            tradingsymbol=f"{und} {p.strike:f} {typ.value}"[:64],
+            name=und,
+            instrument_type=typ,
+            strike=p.strike,
+            expiry=None,
+            lot_size=lot or INDEX_LOT_FALLBACK.get(und, 1),
+            tick_size=Decimal("0.05"),
+            broker_refs={},
+        )
+
     async def _parse(self, params: ReplayParams, text: str) -> tuple[ParsedSignal, str]:
         if params.use_ai:
             outcome = await self.pipeline.parse_text(text, allow_llm=True)
@@ -307,7 +365,7 @@ class ReplayService:
         src: SignalSource,
         m: InboundMessage,
         sources: list[HistoryAdapter],
-        cache: dict[tuple[uuid.UUID, date, date], tuple[list[Candle], str] | str],
+        cache: dict[tuple[str, date, date], tuple[list[Candle], str] | str],
         used: dict[str, int],
         run_id: uuid.UUID,
     ) -> ReplayTrade | None:
@@ -336,18 +394,26 @@ class ReplayService:
         )
         day = m.sent_at.astimezone(IST).date()
         inst = await self.instruments.resolve(p, as_of=day)
+        virtual = False
+        if inst is None:
+            inst = await self._expired_index_option(p, sources)
+            virtual = inst is not None
         if inst is None:
             row.outcome = ReplayOutcome.UNRESOLVED
             row.tradingsymbol = (p.symbol_text or "?")[:64]
-            row.notes = "contract not found for that day (sync instruments?)"
+            why = await self.instruments.explain_unresolved(p, day)
+            if _is_index_option(p) and not any(h.name == "dhan" for h in sources):
+                why += "; connect Dhan (Data API) to replay expired index options"
+            row.notes = why
             return row
         seg = segment_of(inst)
-        row.instrument_id, row.tradingsymbol, row.segment = inst.id, inst.tradingsymbol, seg.value
+        row.tradingsymbol, row.segment = inst.tradingsymbol, seg.value
+        row.instrument_id = None if virtual else inst.id
         if p.stop_loss is None:
             row.notes = "no stop-loss in the message"
             return row
         last = day if params.square_off else params.date_to
-        key = (inst.id, day, last)
+        key = (f"{inst.exchange.value}:{inst.tradingsymbol}", day, last)
         if key not in cache:
             try:
                 cache[key] = await self.history.candles(inst, day, last, sources)

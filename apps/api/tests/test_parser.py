@@ -194,3 +194,25 @@ def test_commodity_aliases_and_futures() -> None:
     p = parse_rules("SELL GOLD MINI FUT 72000 SL 72400 TGT 71500")
     assert p.underlying == "GOLDM"
     assert p.instrument_type is InstrumentType.FUT
+
+
+SAHI = """🚨🚨 SAHI Trade Alert : 1 Oct 🚨🚨
+
+BUY Belrise Industries @ 242-243,  SL 235,  TGT 254
+
+Rationale:
+*   Belrise Industries presents a high-conviction setup driven by momentum.
+Disclaimer"""
+
+
+def test_header_line_is_not_the_stock_and_company_names_are_kept() -> None:
+    p = parse_rules(SAHI)
+    assert p.is_signal
+    assert p.symbol_text == "BELRISE INDUSTRIES"
+    assert p.instrument_type is InstrumentType.EQ
+    assert (p.entry_low, p.entry_high, p.stop_loss) == (Decimal(242), Decimal(243), Decimal(235))
+    assert p.targets == [Decimal(254)]
+    assert parse_rules("BUY BANK OF BARODA 250 SL 245 TGT 260").symbol_text == "BANK OF BARODA"
+    assert parse_rules("BUY LARSEN & TOUBRO 3500 SL 3450").symbol_text == "LARSEN & TOUBRO"
+    assert parse_rules("RELIANCE BUY 2450-2460 SL 2420").symbol_text == "RELIANCE"
+    assert not parse_rules("Please join our VIP group, BUY now 999").is_signal

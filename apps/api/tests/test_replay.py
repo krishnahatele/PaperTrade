@@ -225,3 +225,48 @@ async def test_replay_validation_and_stored_messages(db_client: AsyncClient) -> 
     )
     assert r.json()["status"] == "done"
     assert r.json()["report"]["messages_scanned"] == 0
+
+
+class FakeDhanHistory(FakeHistory):
+    """Pretends to be Dhan: serves expired index options that aren't in the list."""
+
+    name = "dhan"
+
+    async def minute_candles(self, inst: Instrument, day_from: date, day_to: date) -> list[Candle]:
+        self.calls.append((inst.tradingsymbol, day_from, day_to))
+        assert inst.expiry is None  # virtual contract
+        start = datetime(day_from.year, day_from.month, day_from.day, 3, 45, tzinfo=UTC)
+        return bars(*[(200, 201, 199, 200)] * 10, (200, 260, 200, 255), start=start)
+
+
+@pytest.mark.db
+async def test_replay_expired_index_option_via_dhan(db_client: AsyncClient) -> None:
+    c = db_client
+    await setup(c)
+    container = ctr(c)
+    fake = container.telegram.adapter
+    at = datetime(2026, 9, 1, 3, 50, tzinfo=UTC)
+    fake.history["-1001"] = [  # type: ignore[attr-defined]
+        msg("-1001", "1", "BUY NIFTY 22500 CE @ 200 SL 180 TGT 250"),
+        msg("-1001", "2", "BUY SENSEX 71800 CE @ 200 SL 180 TGT 250"),
+    ]
+    for i, m in enumerate(fake.history["-1001"]):  # type: ignore[attr-defined]
+        m.sent_at = at + timedelta(seconds=i)
+
+    container.history.override = FakeHistory()  # Kite-like: can't help
+    r = await c.post("/api/v1/replays", json={"date_from": "2026-09-01", "date_to": "2026-09-01"})
+    trades = (await c.get(f"/api/v1/replays/{r.json()['id']}/trades")).json()["items"]
+    assert [t["outcome"] for t in trades] == ["unresolved", "unresolved"]
+    assert "connect Dhan" in trades[0]["notes"]
+    assert "no SENSEX contracts" in trades[1]["notes"]
+
+    container.history.override = FakeDhanHistory()
+    r = await c.post("/api/v1/replays", json={"date_from": "2026-09-01", "date_to": "2026-09-01"})
+    trades = (await c.get(f"/api/v1/replays/{r.json()['id']}/trades")).json()["items"]
+    assert [(t["tradingsymbol"], t["outcome"]) for t in trades] == [
+        ("NIFTY 22500 CE", "win"),
+        ("SENSEX 71800 CE", "win"),
+    ]
+    assert trades[0]["quantity"] == 75  # lot size from the NIFTY contracts we know
+    # no SENSEX contracts at all: built-in lot size 20; risk sizing takes 2 lots
+    assert trades[1]["quantity"] == 40

@@ -131,7 +131,18 @@ export function ReplayTrades({ runId, sources }: { runId: string; sources: strin
               </span>
             ),
           },
-          { key: "out", header: "Result", render: (t) => <StatusPill tone={outcomeTone(t.outcome)}>{OUTCOME_LABELS[t.outcome] ?? t.outcome}</StatusPill> },
+          {
+            key: "out",
+            header: "Result",
+            render: (t) => (
+              <span className="block">
+                <StatusPill tone={outcomeTone(t.outcome)}>{OUTCOME_LABELS[t.outcome] ?? t.outcome}</StatusPill>
+                {t.notes && !["win", "loss", "breakeven"].includes(t.outcome) && (
+                  <span className="mt-0.5 block max-w-xs whitespace-normal text-xs text-muted">{t.notes}</span>
+                )}
+              </span>
+            ),
+          },
           { key: "qty", header: "Qty", align: "right", render: (t) => t.quantity ?? "—" },
           {
             key: "entry",

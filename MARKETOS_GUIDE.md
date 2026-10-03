@@ -249,8 +249,12 @@ size. Without Kite you can practise with **Instruments → set price**.
   day, hour and underlying, plus every trade with its message. CSV download.
 - Separate from live paper trading: it never creates signals, orders or positions.
 - Price data: Kite needs its historical-data plan and has **no data for expired contracts** (last
-  week's weekly options). Dhan's Data API (₹499/month) also serves expired index options. Those
-  messages show as "no data" otherwise.
+  week's weekly options). Dhan's Data API (₹499/month) also serves expired index options, even
+  ones that were never in your instrument list (MarketOS uses the strike from the message and
+  that day's nearest expiry). Without Dhan those messages show as "no data" / "symbol not found"
+  with the reason.
+- Messages are read from the line with BUY/SELL, so banner lines like "SAHI Trade Alert" are
+  skipped, and stocks can be written by company name.
 
 ### AI costs
 AI is only called for messages the rules can't read confidently, that look like trade calls, and
@@ -276,7 +280,7 @@ tiers or credits; "Rules only" is free.
 | Broker test: "Dhan rejected the access token" | Token expired (24 h) or mistyped. Generate a new one on web.dhan.co and save it |
 | Dhan prices missing | Data API plan needed; and run **Settings → Broker → Sync Dhan instrument IDs** after an instrument sync |
 | Replay: many "no data" | Contract expired (Kite has no data for expired options) or no history source. Use Dhan as replay source, or replay recent days |
-| Replay: "unresolved" | Contract not in the instrument list for that day: sync instruments; for old weeks the contract may never have been synced |
+| Replay: "symbol not found" | The row now says why. "No SENSEX contracts" → run Instruments → Sync (SENSEX is on BSE). "Not in your instrument list … expired before your last sync" → the weekly contract expired before you ever synced; with Dhan connected (Data API), index options (NIFTY, BANKNIFTY, FINNIFTY, MIDCPNIFTY, SENSEX, BANKEX) are replayed anyway from Dhan's expired-option data. Stocks written by company name ("Belrise Industries") are matched to their symbol |
 | Bot doesn't answer | Settings → Telegram bot: is it linked? "Send test message". Only the linked chat is obeyed |
 | News: feed errors | Some sites block automated reading from some networks; disable that feed or add another RSS link |
 | Lost the master key | Credentials can't be decrypted; re-enter Telegram/Kite/AI keys. Back up `apps/api/.secrets/master.key` (Codespaces/local) or the `apisecrets` Docker volume |

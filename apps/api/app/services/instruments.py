@@ -288,15 +288,9 @@ class InstrumentService:
         live_only = as_of is None
         async with self.sf() as s:
             if p.instrument_type is InstrumentType.EQ:
-                for ex in (Exchange.NSE, Exchange.BSE):
-                    q = select(Instrument).where(
-                        Instrument.exchange == ex, Instrument.tradingsymbol == und
-                    )
-                    if live_only:
-                        q = q.where(Instrument.is_active.is_(True))
-                    inst = await s.scalar(q)
-                    if inst is not None:
-                        return inst
+                inst = await self._equity(s, und, live_only)
+                if inst is not None:
+                    return inst
                 # Commodities trade only as futures: "BUY CRUDEOIL 6400 SL 6350"
                 q = select(Instrument).where(
                     Instrument.exchange == Exchange.MCX,
@@ -324,6 +318,58 @@ class InstrumentService:
                 year = day.year + (1 if month < day.month - 6 else 0)
                 q = q.where(Instrument.expiry >= date(year, month, 1))
             return await s.scalar(q.order_by(Instrument.expiry).limit(1))
+
+    async def _equity(self, s: AsyncSession, text: str, live_only: bool) -> Instrument | None:
+        """A stock by symbol or by company name: "RELIANCE", "BELRISE INDUSTRIES",
+        "LARSEN & TOUBRO", "TATA MOTORS" (NSE preferred over BSE)."""
+        words = text.split()
+        symbols = [text, text.replace(" ", ""), *([words[0]] if len(words) > 1 else [])]
+        base = select(Instrument).where(
+            Instrument.exchange.in_([Exchange.NSE, Exchange.BSE]),
+            Instrument.instrument_type == InstrumentType.EQ,
+        )
+        if live_only:
+            base = base.where(Instrument.is_active.is_(True))
+        order = Instrument.exchange.desc()  # "NSE" > "BSE"
+        for cond in (
+            Instrument.tradingsymbol == symbols[0],
+            Instrument.tradingsymbol == symbols[1],
+            Instrument.name == text,
+            Instrument.name.startswith(text + " "),
+            *([Instrument.tradingsymbol == symbols[2]] if len(symbols) > 2 else []),
+        ):
+            inst = await s.scalar(base.where(cond).order_by(order).limit(1))
+            if inst is not None:
+                return inst
+        return None
+
+    async def explain_unresolved(self, p: ParsedSignal, as_of: date) -> str:
+        """Why ``resolve`` found nothing, in plain words."""
+        und = (p.underlying or p.symbol_text or "?").upper()
+        async with self.sf() as s:
+            if p.instrument_type is InstrumentType.EQ:
+                return f"no stock or MCX future called {und} in your instrument list"
+            total = await s.scalar(select(func.count()).where(Instrument.name == und))
+            if not total:
+                hint = (
+                    " (SENSEX/BANKEX are on BSE: sync BFO)" if und in ("SENSEX", "BANKEX") else ""
+                )
+                return f"no {und} contracts in your instrument list: run Instruments → Sync{hint}"
+            if p.instrument_type in (InstrumentType.CE, InstrumentType.PE) and p.strike is not None:
+                any_strike = await s.scalar(
+                    select(func.count()).where(
+                        Instrument.name == und,
+                        Instrument.strike == p.strike,
+                        Instrument.instrument_type == p.instrument_type,
+                    )
+                )
+                if not any_strike:
+                    return (
+                        f"{und} {p.strike} {p.instrument_type.value} is not in your "
+                        f"instrument list (the contract for {as_of:%d %b} expired before "
+                        "your last sync, or that strike isn't listed now)"
+                    )
+            return f"no {und} contract live on {as_of:%d %b} in your instrument list"
 
 
 _MONTHS = ["JAN", "FEB", "MAR", "APR", "MAY", "JUN", "JUL", "AUG", "SEP", "OCT", "NOV", "DEC"]
