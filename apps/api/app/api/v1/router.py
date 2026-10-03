@@ -14,6 +14,7 @@ from app.api.v1.routes import (
     llm,
     market,
     messages,
+    news,
     settings,
     signal_sources,
     signals,
@@ -41,4 +42,5 @@ protected.include_router(llm.router)
 protected.include_router(market.router)
 protected.include_router(brokers.router)
 protected.include_router(bot.router)
+protected.include_router(news.router)
 api_router.include_router(protected)

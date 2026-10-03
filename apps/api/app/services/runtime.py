@@ -97,6 +97,11 @@ _KEYS: dict[type[BaseModel], str] = {
 }
 
 
+def register_runtime(model: type[BaseModel], key: str) -> None:
+    """Let a feature module keep its own settings model (avoids import cycles)."""
+    _KEYS[model] = key
+
+
 class RuntimeStore:
     def __init__(self, session_factory: async_sessionmaker[AsyncSession]) -> None:
         self._sf = session_factory

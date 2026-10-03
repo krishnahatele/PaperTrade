@@ -23,6 +23,7 @@ from app.services.instruments import InstrumentService
 from app.services.kite import KiteService
 from app.services.llm import LLMService
 from app.services.market_data import MarketDataService
+from app.services.news import NewsService
 from app.services.runtime import RuntimeStore
 from app.services.secrets import SecretStore
 from app.services.signal_pipeline import SignalPipeline
@@ -50,6 +51,7 @@ class Container:
     market: MarketDataService
     engine: TradingEngine
     bot: TelegramBotService
+    news: NewsService
     adapters: AdapterRegistry
     login_limiter: LoginRateLimiter = field(default_factory=LoginRateLimiter)
     _tasks: set[asyncio.Task[None]] = field(default_factory=set)
@@ -111,6 +113,7 @@ class Container:
             bot=TelegramBotService(
                 secrets, runtime, bus, db.session_factory, engine, market, telegram
             ),
+            news=NewsService(db.session_factory, bus, runtime, market),
             adapters=adapters,
         )
         if settings.background_services:
@@ -158,6 +161,7 @@ class Container:
         self.spawn(self.engine.run_forever(), "trading.engine")
         self.spawn(self._housekeeping(), "housekeeping")
         self.spawn(self.bot.run_forever(), "telegram.bot")
+        self.spawn(self.news.run_forever(), "news")
 
     async def _housekeeping(self) -> None:
         """Periodic chores: keep the Dhan token alive (renewed before 24 h)."""

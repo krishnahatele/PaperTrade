@@ -139,3 +139,28 @@ class TrailMode(StrEnum):
     STEP = "step"  # SL to cost after TP1, to TP1 after TP2 ...
     POINTS = "points"
     PERCENT = "percent"
+
+
+class AlertKind(StrEnum):
+    NEWS = "news"
+    MARKET = "market"
+    SYSTEM = "system"
+
+
+class ReplayStatus(StrEnum):
+    QUEUED = "queued"
+    RUNNING = "running"
+    DONE = "done"
+    FAILED = "failed"
+    CANCELLED = "cancelled"
+
+
+class ReplayOutcome(StrEnum):
+    WIN = "win"
+    LOSS = "loss"
+    BREAKEVEN = "breakeven"
+    ENTRY_NOT_HIT = "entry_not_hit"  # price never reached the entry in time
+    NO_DATA = "no_data"  # no historical candles for the contract
+    UNRESOLVED = "unresolved"  # symbol could not be matched to a contract
+    INCOMPLETE = "incomplete"  # missing entry / stop-loss
+    NOT_SIGNAL = "not_signal"
