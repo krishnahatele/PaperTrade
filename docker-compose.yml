@@ -1,0 +1,54 @@
+name: marketos
+
+services:
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-marketos}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-marketos}
+      POSTGRES_DB: ${POSTGRES_DB:-marketos}
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./infra/postgres/init:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  api:
+    build: ./apps/api
+    restart: unless-stopped
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      MARKETOS_DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-marketos}:${POSTGRES_PASSWORD:-marketos}@db:5432/${POSTGRES_DB:-marketos}
+      MARKETOS_CORS_ORIGINS: '["http://localhost:${WEB_PORT:-3000}"]'
+    ports:
+      - "${API_PORT:-8000}:8000"
+    volumes:
+      # Master encryption key for stored credentials (generated on first start).
+      - apisecrets:/app/.secrets
+    depends_on:
+      db:
+        condition: service_healthy
+
+  web:
+    build:
+      context: ./apps/web
+      args:
+        NEXT_PUBLIC_API_URL: http://localhost:${API_PORT:-8000}
+    restart: unless-stopped
+    ports:
+      - "${WEB_PORT:-3000}:3000"
+    depends_on:
+      api:
+        condition: service_healthy
+
+volumes:
+  pgdata:
+  apisecrets:
