@@ -2,7 +2,8 @@
 
 MarketOS is a signal-driven trading workstation (Telegram, then signals, then paper or Kite execution).
 Monorepo: `apps/api` (FastAPI + SQLAlchemy 2 async + Alembic, managed with `uv`) and
-`apps/web` (Next.js 16 App Router + Tailwind v4). Read `docs/architecture.md` first.
+`apps/web` (Next.js 16 App Router + Tailwind v4). Read `MARKETOS_GUIDE.md` (status, how it is used,
+roadmap) and `docs/architecture.md` first. Phases 0–4 are done; execution is paper-only.
 
 ## Non-negotiables
 

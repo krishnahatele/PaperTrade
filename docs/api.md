@@ -52,7 +52,7 @@ Responses only say whether each credential is set, plus a masked hint (`••�
 |---|---|---|
 | GET | `/api/v1/settings` | `{trading, parsing}` |
 | PATCH | `/api/v1/settings/trading` | `kill_switch`, `auto_execute`, `live_armed` (403 unless `MARKETOS_LIVE_TRADING_ENABLED=true`), `min_confidence` (0–1), `signal_ttl_minutes` |
-| PATCH | `/api/v1/settings/parsing` | `mode` (`rules_only` / `rules_then_llm` / `llm_only`), `llm_provider` (`anthropic`, `gemini`, `groq`, `deepseek`, `openai`, `openrouter`, `ollama`, `custom`), `llm_model`, `llm_base_url` (custom/ollama only) |
+| PATCH | `/api/v1/settings/parsing` | `mode` (`rules_only` / `rules_then_llm` / `llm_only`), `llm_provider` (`anthropic`, `gemini`, `groq`, `deepseek`, `openai`, `openrouter`, `nvidia`, `ollama`, `custom`), `llm_model`, `llm_base_url` (custom/ollama only) |
 
 ## AI providers
 

@@ -9,6 +9,12 @@ structured trade ideas and executed in paper mode (and, once explicitly enabled,
 | Frontend | Next.js 16 (App Router) · React 19 · Tailwind CSS v4 |
 | Tooling | uv · ruff · mypy (strict) · pytest · ESLint · tsc · Vitest · Docker Compose |
 
+## Quick start (GitHub Codespaces)
+
+```bash
+bash scripts/codespace-start.sh
+```
+
 ## Quick start (Docker)
 
 ```bash
@@ -37,6 +43,8 @@ make check                       # lint + typecheck + tests
 ```
 
 ## Documentation
+
+* **[Complete guide: what's built, how to run & use it, next steps](MARKETOS_GUIDE.md)**
 
 * [Architecture](docs/architecture.md)
 * [Database & ERD](docs/database.md)

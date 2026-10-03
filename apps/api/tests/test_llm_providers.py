@@ -168,3 +168,20 @@ async def test_provider_switch_keys_and_model_list(db_client: AsyncClient) -> No
     r = await c.post("/api/v1/llm/test", json={"text": "hello"})
     assert r.status_code == 200
     assert r.json()["is_signal"] is False
+
+
+@pytest.mark.parametrize(("code", "text"), [(404, "not found"), (410, "retired")])
+async def test_openai_compat_model_errors_are_clear(code: int, text: str) -> None:
+    def handler(req: httpx.Request) -> httpx.Response:
+        return httpx.Response(code, text="404 page not found")
+
+    with pytest.raises(LLMError, match=text):
+        await _adapter(handler).complete(
+            LLMRequest(messages=[LLMMessage(role="user", content="x")])
+        )
+
+
+@pytest.mark.db
+async def test_nvidia_preset(db_client: AsyncClient) -> None:
+    provs = {p["id"]: p for p in (await db_client.get("/api/v1/llm/providers")).json()}
+    assert provs["nvidia"]["base_url"] == "https://integrate.api.nvidia.com/v1"

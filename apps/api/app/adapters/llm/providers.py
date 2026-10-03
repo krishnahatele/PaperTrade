@@ -15,6 +15,7 @@ class LLMProvider(StrEnum):
     GROQ = "groq"
     DEEPSEEK = "deepseek"
     OPENROUTER = "openrouter"
+    NVIDIA = "nvidia"
     OLLAMA = "ollama"
     CUSTOM = "custom"
 
@@ -75,6 +76,15 @@ PRESETS: dict[LLMProvider, ProviderPreset] = {
             needs_key=True,
             key_hint="sk-…  (platform.openai.com)",
             note="Use a 'mini' model for low cost.",
+            suggested_models=[],
+        ),
+        ProviderPreset(
+            id=LLMProvider.NVIDIA,
+            label="NVIDIA (build.nvidia.com)",
+            base_url="https://integrate.api.nvidia.com/v1",
+            needs_key=True,
+            key_hint="nvapi-…  (build.nvidia.com → API Keys)",
+            note="Free developer credits. Pick an '-instruct' model; some are retired.",
             suggested_models=[],
         ),
         ProviderPreset(

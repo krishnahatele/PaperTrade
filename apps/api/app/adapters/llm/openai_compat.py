@@ -85,6 +85,14 @@ class OpenAICompatibleAdapter(LLMAdapter):
             raise LLMError(f"{self.name} rejected the API key.")
         if resp.status_code == 429:
             raise LLMError(f"{self.name} rate limit reached; try again shortly.")
+        if resp.status_code == 404:
+            raise LLMError(
+                f"Model '{self.model}' was not found on {self.name}. Pick another model."
+            )
+        if resp.status_code == 410:
+            raise LLMError(
+                f"Model '{self.model}' has been retired by {self.name}. Pick another model."
+            )
         if resp.status_code >= 400:
             raise LLMError(f"{self.name} error {resp.status_code}: {resp.text[:200]}")
         data = resp.json()
