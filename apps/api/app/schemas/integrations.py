@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from pydantic import BaseModel, Field, field_validator
 
+from app.adapters.llm.providers import LLMProvider
 from app.services.runtime import ParsingRuntime, TradingRuntime
 
 
@@ -32,6 +33,7 @@ class KiteCredentials(BaseModel):
 
 
 class LLMCredentials(BaseModel):
+    provider: LLMProvider | None = Field(default=None, description="Defaults to the active one")
     api_key: str | None = Field(default=None, min_length=8, max_length=256)
 
     @field_validator("api_key")
@@ -55,6 +57,8 @@ class KiteStatus(BaseModel):
 
 
 class LLMStatus(BaseModel):
+    provider: LLMProvider
+    model: str
     api_key: SecretField
 
 

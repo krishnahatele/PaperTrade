@@ -63,7 +63,9 @@ async def list_signals(
     summary="Run the parser on any text without storing anything",
 )
 async def parse_preview(body: ParsePreviewBody, container: ContainerDep) -> ParsePreview:
-    outcome = await container.pipeline.parse_text(body.text, allow_llm=body.use_llm)
+    outcome = await container.pipeline.parse_text(
+        body.text, allow_llm=body.use_llm, force_llm=body.force_llm
+    )
     p = outcome.parsed
     inst = await container.instruments.resolve(p) if p.is_signal else None
     return ParsePreview(

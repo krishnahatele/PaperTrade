@@ -10,16 +10,26 @@ from anthropic.types.beta import BetaMessageParam, BetaOutputConfigParam
 
 from app.adapters.base import AdapterHealth, AdapterState
 from app.adapters.llm.base import LLMAdapter, LLMRequest, LLMResponse
-from app.core.errors import MarketOSError
+from app.adapters.llm.errors import LLMError
 
 # Server-side refusal fallback: if the model declines, the API re-runs the request
-# on Anthropic's recommended fallback model inside the same call.
+# on Anthropic's recommended fallback model inside the same call. Only the newest
+# models accept it.
 _FALLBACK_BETA = "server-side-fallback-2026-07-01"
+_FALLBACK_MODELS = ("claude-fable-5-1", "claude-opus-5-5", "claude-opus-5", "claude-sonnet-5-5")
+# Models that reject the `effort` parameter.
+_NO_EFFORT_PREFIXES = ("claude-haiku-4-5", "claude-sonnet-4-5", "claude-3")
 
 
-class LLMError(MarketOSError):
-    status_code = 502
-    code = "llm_error"
+def supports_fallbacks(model: str) -> bool:
+    return model in _FALLBACK_MODELS
+
+
+def supports_effort(model: str) -> bool:
+    return not model.startswith(_NO_EFFORT_PREFIXES)
+
+
+__all__ = ["AnthropicLLMAdapter", "LLMError"]
 
 
 class AnthropicLLMAdapter(LLMAdapter):
@@ -43,18 +53,21 @@ class AnthropicLLMAdapter(LLMAdapter):
         messages: list[BetaMessageParam] = [
             {"role": m.role, "content": m.content} for m in request.messages if m.role != "system"
         ]
-        output_config: BetaOutputConfigParam = {"effort": self.effort}
+        output_config: BetaOutputConfigParam = {}
+        if supports_effort(self.model):
+            output_config["effort"] = self.effort
         if request.response_schema is not None:
             output_config["format"] = {"type": "json_schema", "schema": request.response_schema}
+        fallback = supports_fallbacks(self.model)
         try:
             resp = await self._client.beta.messages.create(
                 model=self.model,
                 max_tokens=request.max_tokens,
                 system=system or anthropic.omit,
                 messages=messages,
-                output_config=output_config,
-                betas=[_FALLBACK_BETA],
-                fallbacks="default",
+                output_config=output_config or anthropic.omit,
+                betas=[_FALLBACK_BETA] if fallback else anthropic.omit,
+                fallbacks="default" if fallback else anthropic.omit,
             )
         except anthropic.AuthenticationError as exc:
             raise LLMError("Anthropic rejected the API key.") from exc
@@ -81,3 +94,13 @@ class AnthropicLLMAdapter(LLMAdapter):
             output_tokens=resp.usage.output_tokens,
             parsed=parsed,
         )
+
+    async def list_models(self) -> list[str]:
+        try:
+            page = await self._client.models.list(limit=100)
+        except anthropic.APIError as exc:
+            raise LLMError(f"Could not list Anthropic models: {exc}") from exc
+        return [m.id for m in page.data]
+
+    async def close(self) -> None:
+        await self._client.close()

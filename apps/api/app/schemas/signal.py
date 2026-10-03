@@ -59,6 +59,7 @@ class SignalReview(BaseModel):
 class ParsePreviewBody(BaseModel):
     text: str = Field(min_length=1, max_length=4000)
     use_llm: bool = True
+    force_llm: bool = Field(default=False, description="Skip the rules parser and ask the AI")
 
 
 class ParsePreview(BaseModel):

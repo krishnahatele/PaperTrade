@@ -5,6 +5,7 @@ from __future__ import annotations
 
 from fastapi import APIRouter, status
 
+from app.adapters.llm.providers import LLMProvider
 from app.api.deps import ContainerDep
 from app.events import Event, EventType
 from app.schemas.integrations import (
@@ -18,7 +19,9 @@ from app.schemas.integrations import (
     TelegramStatus,
     mask,
 )
+from app.services.runtime import ParsingRuntime
 from app.services.secrets import SecretName as N
+from app.services.secrets import llm_key_name
 
 router = APIRouter(prefix="/integrations", tags=["integrations"])
 
@@ -43,7 +46,11 @@ async def get_integrations(container: ContainerDep) -> IntegrationsStatus:
             session_active=bool(v[N.KITE_ACCESS_TOKEN]),
             user_id=v[N.KITE_USER_ID],
         ),
-        llm=LLMStatus(api_key=_field(v[N.LLM_API_KEY])),
+        llm=LLMStatus(
+            provider=(parsing := await container.runtime.get(ParsingRuntime)).llm_provider,
+            model=parsing.llm_model,
+            api_key=_field(await container.llm.api_key(parsing.llm_provider)),
+        ),
     )
 
 
@@ -105,17 +112,26 @@ async def delete_kite(container: ContainerDep) -> None:
     await _audit(container, "kite", "cleared", [])
 
 
-@router.put("/llm", response_model=IntegrationsStatus)
+async def _provider(container: ContainerDep, provider: LLMProvider | None) -> LLMProvider:
+    return provider or (await container.runtime.get(ParsingRuntime)).llm_provider
+
+
+@router.put(
+    "/llm", response_model=IntegrationsStatus, summary="Save the API key for an AI provider"
+)
 async def put_llm(body: LLMCredentials, container: ContainerDep) -> IntegrationsStatus:
+    provider = await _provider(container, body.provider)
     if body.api_key:
-        await container.secrets.put(N.LLM_API_KEY, body.api_key)
+        await container.secrets.put(llm_key_name(provider), body.api_key)
         await container.llm.reload()
-        await _audit(container, "llm", "updated", ["api_key"])
+        await _audit(container, "llm", "updated", [f"api_key.{provider}"])
     return await get_integrations(container)
 
 
 @router.delete("/llm", status_code=status.HTTP_204_NO_CONTENT)
-async def delete_llm(container: ContainerDep) -> None:
-    await container.secrets.delete(N.LLM_API_KEY)
+async def delete_llm(container: ContainerDep, provider: LLMProvider | None = None) -> None:
+    p = await _provider(container, provider)
+    names = [llm_key_name(p)] + ([N.LLM_API_KEY] if p is LLMProvider.ANTHROPIC else [])
+    await container.secrets.delete(*names)
     await container.llm.reload()
-    await _audit(container, "llm", "cleared", [])
+    await _audit(container, "llm", "cleared", [f"api_key.{p}"])

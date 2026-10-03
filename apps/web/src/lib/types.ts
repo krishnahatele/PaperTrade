@@ -100,7 +100,7 @@ export type SecretField = { set: boolean; hint: string | null };
 export type Integrations = {
   telegram: { api_id: SecretField; api_hash: SecretField; phone: SecretField; authorized: boolean };
   kite: { api_key: SecretField; api_secret: SecretField; session_active: boolean; user_id: string | null };
-  llm: { api_key: SecretField };
+  llm: { provider: string; model: string; api_key: SecretField };
 };
 
 export type TradingRuntime = {
@@ -115,6 +115,19 @@ export type ParsingRuntime = {
   mode: "rules_only" | "rules_then_llm" | "llm_only";
   llm_model: string;
   llm_provider: string;
+  llm_base_url: string | null;
+};
+
+export type LLMProviderInfo = {
+  id: string;
+  label: string;
+  base_url: string | null;
+  needs_key: boolean;
+  key_hint: string;
+  note: string;
+  suggested_models: string[];
+  key_set: boolean;
+  active: boolean;
 };
 
 export type RuntimeSettings = { trading: TradingRuntime; parsing: ParsingRuntime };

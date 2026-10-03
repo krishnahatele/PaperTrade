@@ -43,7 +43,8 @@ Responses only say whether each credential is set, plus a masked hint (`••�
 | PUT | `/api/v1/integrations/telegram` | any of `api_id` (digits), `api_hash` (32 hex), `phone` (`+<country><number>`). Resets the Telegram session |
 | DELETE | `/api/v1/integrations/telegram` | Logs out and removes all Telegram credentials |
 | PUT / DELETE | `/api/v1/integrations/kite` | `api_key`, `api_secret` |
-| PUT / DELETE | `/api/v1/integrations/llm` | `api_key` |
+| PUT | `/api/v1/integrations/llm` | `{provider?, api_key}`. Keys are stored per provider (defaults to the active one) |
+| DELETE | `/api/v1/integrations/llm?provider=` | Removes that provider's key |
 
 ## Runtime settings
 
@@ -51,7 +52,15 @@ Responses only say whether each credential is set, plus a masked hint (`••�
 |---|---|---|
 | GET | `/api/v1/settings` | `{trading, parsing}` |
 | PATCH | `/api/v1/settings/trading` | `kill_switch`, `auto_execute`, `live_armed` (403 unless `MARKETOS_LIVE_TRADING_ENABLED=true`), `min_confidence` (0–1), `signal_ttl_minutes` |
-| PATCH | `/api/v1/settings/parsing` | `mode` (`rules_only` / `rules_then_llm` / `llm_only`), `llm_model`, `llm_provider` |
+| PATCH | `/api/v1/settings/parsing` | `mode` (`rules_only` / `rules_then_llm` / `llm_only`), `llm_provider` (`anthropic`, `gemini`, `groq`, `deepseek`, `openai`, `openrouter`, `ollama`, `custom`), `llm_model`, `llm_base_url` (custom/ollama only) |
+
+## AI providers
+
+| Method | Path | Notes |
+|---|---|---|
+| GET | `/api/v1/llm/providers` | Presets with label, base URL, note, suggested models, `key_set`, `active` |
+| GET | `/api/v1/llm/models?provider=` | Live chat-model list from the provider (needs its key). Embedding/audio/image models are filtered out |
+| POST | `/api/v1/llm/test` | `{text?}`. Parses a sample with the active model (one paid call) |
 
 ## Telegram
 
@@ -118,7 +127,7 @@ Telegram errors: 403 `feature_disabled` (credentials missing), 400 `telegram_log
 | POST | `/api/v1/signals` | Manual entry. `source_id`, `symbol_text`, `side`, optional `instrument_id`, `entry_low`, `entry_high` (low ≤ high), `stop_loss`, `targets[]`, `notes`. Does **not** trigger execution |
 | GET | `/api/v1/signals/{id}` | Includes `details` (underlying, type, strike, expiry text, warnings, AI error) |
 | PATCH | `/api/v1/signals/{id}` | Review: `status` (new → validated/rejected, validated → new/rejected/cancelled, rejected/expired → new), `instrument_id`, `entry_low`, `entry_high`, `stop_loss`, `targets`, `notes`. Validating requires an instrument and a stop loss |
-| POST | `/api/v1/signals/parse-preview` | `{text, use_llm}`. Runs the parser and returns what it read, without storing anything |
+| POST | `/api/v1/signals/parse-preview` | `{text, use_llm, force_llm}`. Runs the parser and returns what it read, without storing anything |
 | POST | `/api/v1/messages/{id}/parse` | Re-runs the parser on a stored raw message and returns the new signal (or `null` if it isn't a signal) |
 
 Example:

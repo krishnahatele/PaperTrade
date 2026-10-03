@@ -71,11 +71,15 @@ class SignalPipeline:
         else:
             self.spawn(run(), f"parse:{raw_id}")
 
-    async def parse_text(self, text: str, *, allow_llm: bool = True) -> ParseOutcome:
+    async def parse_text(
+        self, text: str, *, allow_llm: bool = True, force_llm: bool = False
+    ) -> ParseOutcome:
         parsing = await self.runtime.get(ParsingRuntime)
         rules = parse_rules(text)
         llm_ok = allow_llm and self.llm.configured and parsing.mode is not ParserMode.RULES_ONLY
-        use_llm_first = llm_ok and parsing.mode is ParserMode.LLM_ONLY
+        if force_llm and self.llm.configured:
+            llm_ok = True
+        use_llm_first = llm_ok and (force_llm or parsing.mode is ParserMode.LLM_ONLY)
         rules_good = rules.is_signal and float(rules.confidence) >= RULES_ACCEPT
         if not use_llm_first and (rules_good or not llm_ok or not _LOOKS_LIKE_SIGNAL.search(text)):
             return ParseOutcome(parser=SignalParser.RULE if rules.is_signal else None, parsed=rules)
@@ -89,7 +93,7 @@ class SignalPipeline:
                 parser=SignalParser.RULE if rules.is_signal else None, parsed=rules, llm_error=msg
             )
         # Prefer whichever reading is more confident.
-        if rules.is_signal and rules.confidence >= parsed.confidence:
+        if not force_llm and rules.is_signal and rules.confidence >= parsed.confidence:
             return ParseOutcome(parser=SignalParser.RULE, parsed=rules)
         return ParseOutcome(parser=SignalParser.LLM if parsed.is_signal else None, parsed=parsed)
 

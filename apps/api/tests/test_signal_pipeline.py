@@ -44,7 +44,7 @@ async def setup(c: AsyncClient, llm: FakeLLM | None = None) -> tuple[Container, 
 
     container.instruments.fetcher = fetch
     if llm is not None:
-        container.llm.factory = lambda key, model: llm
+        container.llm.factory = lambda provider, base_url, key, model: llm
         await c.put("/api/v1/integrations/llm", json={"api_key": "sk-ant-test-key-123"})
     await c.put("/api/v1/integrations/telegram", json=CREDS)
     await c.post("/api/v1/telegram/login/start")

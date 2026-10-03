@@ -30,7 +30,7 @@ export default function SettingsPage() {
           <TradingCard key={JSON.stringify(runtime.data.trading)} trading={runtime.data.trading} liveAllowed={Boolean(info.data?.live_trading_enabled)} onChange={reload} />
           <TelegramCard data={integrations.data.telegram} onChange={reload} />
           <KiteCard data={integrations.data.kite} onChange={reload} />
-          <LLMCard key={runtime.data.parsing.llm_model} data={integrations.data.llm} parsing={runtime.data.parsing} onChange={reload} />
+          <LLMCard key={`${runtime.data.parsing.llm_provider}:${runtime.data.parsing.llm_model}`} parsing={runtime.data.parsing} onChange={reload} />
           <PasswordCard />
         </div>
       )}

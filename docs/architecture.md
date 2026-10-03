@@ -146,10 +146,14 @@ from cached state so status endpoints never block on Telegram's network.
    ignored. Verb-less option calls are assumed BUY with a warning. Confidence comes from
    completeness, and is cut when levels are inconsistent (e.g. BUY with SL above entry).
 2. **AI fallback** (`app/parsing/llm.py`): only when rules confidence is below 0.8, the message
-   looks trade-like, and the message is not stale. It calls Claude through `AnthropicLLMAdapter`
-   (default `claude-opus-5-5`, effort `low`, strict JSON schema output, server-side refusal
-   fallback). The output is treated as untrusted and re-validated. At most 2 concurrent calls.
-   Modes: rules only, rules then AI (default), AI only.
+   looks trade-like, and the message is not stale. The provider is selectable in Settings:
+   `AnthropicLLMAdapter` (Claude; default `claude-haiku-4-5` for low cost; `effort` and
+   server-side refusal fallback are sent only to models that accept them) or
+   `OpenAICompatibleAdapter` for Gemini, Groq, DeepSeek, OpenAI, OpenRouter, Ollama or any custom
+   `/chat/completions` server (JSON-schema output, falling back to JSON mode then plain text if
+   the provider doesn't support it). API keys are encrypted per provider; the model dropdown is
+   filled from the provider's live `/models` list. Output is treated as untrusted and
+   re-validated. At most 2 concurrent calls. Modes: rules only, rules then AI (default), AI only.
 3. **Instrument resolution** (`InstrumentService.resolve`): equities by NSE then BSE symbol; F&O
    by underlying + type (+ strike) at the nearest unexpired expiry (respecting a stated month).
    The instrument master comes from Kite's public dump (`POST /instruments/sync`).

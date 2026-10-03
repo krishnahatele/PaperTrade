@@ -9,6 +9,7 @@ from typing import Any, TypeVar
 from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
+from app.adapters.llm.providers import LLMProvider
 from app.models import AppSetting
 
 
@@ -37,8 +38,10 @@ class TradingRuntime(BaseModel):
 
 class ParsingRuntime(BaseModel):
     mode: ParserMode = ParserMode.RULES_THEN_LLM
-    llm_model: str = "claude-opus-5-5"
-    llm_provider: str = "anthropic"
+    llm_provider: LLMProvider = LLMProvider.ANTHROPIC
+    llm_model: str = Field(default="claude-haiku-4-5", min_length=1, max_length=200)
+    # Only used by the custom / Ollama providers (others have a fixed URL).
+    llm_base_url: str | None = Field(default=None, max_length=500)
 
 
 class AuthRuntime(BaseModel):

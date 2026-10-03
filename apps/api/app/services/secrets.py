@@ -21,7 +21,11 @@ class SecretName(StrEnum):
     KITE_API_SECRET = "kite.api_secret"  # noqa: S105
     KITE_ACCESS_TOKEN = "kite.access_token"  # noqa: S105
     KITE_USER_ID = "kite.user_id"
-    LLM_API_KEY = "llm.api_key"
+    LLM_API_KEY = "llm.api_key"  # legacy (Anthropic) key from before multi-provider
+
+
+def llm_key_name(provider: str) -> str:
+    return f"llm.api_key.{provider}"
 
 
 class SecretStore:
@@ -31,9 +35,9 @@ class SecretStore:
         self._sf = session_factory
         self._box = box
 
-    async def get(self, name: SecretName) -> str | None:
+    async def get(self, name: str) -> str | None:
         async with self._sf() as s:
-            rec = await s.get(SecretRecord, name.value)
+            rec = await s.get(SecretRecord, str(name))
             return None if rec is None else self._box.decrypt(rec.ciphertext)
 
     async def get_many(self, *names: SecretName) -> dict[SecretName, str | None]:
@@ -44,20 +48,20 @@ class SecretStore:
             found = {r.name: self._box.decrypt(r.ciphertext) for r in rows}
         return {n: found.get(n.value) for n in names}
 
-    async def put(self, name: SecretName, value: str) -> None:
+    async def put(self, name: str, value: str) -> None:
         async with self._sf() as s:
-            rec = await s.get(SecretRecord, name.value)
+            rec = await s.get(SecretRecord, str(name))
             ct = self._box.encrypt(value)
             if rec is None:
-                s.add(SecretRecord(name=name.value, ciphertext=ct))
+                s.add(SecretRecord(name=str(name), ciphertext=ct))
             else:
                 rec.ciphertext = ct
             await s.commit()
 
-    async def delete(self, *names: SecretName) -> None:
+    async def delete(self, *names: str) -> None:
         async with self._sf() as s:
             await s.execute(
-                delete(SecretRecord).where(SecretRecord.name.in_([n.value for n in names]))
+                delete(SecretRecord).where(SecretRecord.name.in_([str(n) for n in names]))
             )
             await s.commit()
 
