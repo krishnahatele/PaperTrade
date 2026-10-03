@@ -68,3 +68,5 @@ class Order(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     )
     # Working orders past this time are cancelled (unfilled signal entries).
     expires_at: Mapped[datetime | None]
+    # For TARGET orders: which take-profit leg (0 = TP1) this order exits.
+    leg: Mapped[int | None]

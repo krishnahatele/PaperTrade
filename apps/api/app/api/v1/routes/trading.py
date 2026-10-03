@@ -21,12 +21,16 @@ from app.schemas.order import OrderRead, PositionRead, TradeRead
 from app.schemas.trading import (
     AccountSummary,
     ExecuteBody,
+    ExitAllResult,
+    KillSwitchBody,
     ManualOrderBody,
     PositionView,
+    TradeExitBody,
     TradePlanRead,
+    TradeUpdateBody,
 )
 from app.services.repository import Repository
-from app.services.risk import AccountRiskSettings
+from app.services.risk import AccountRiskSettings, TargetLeg
 from app.services.trading import SkipError
 
 router = APIRouter(tags=["trading"])
@@ -127,7 +131,7 @@ async def _enrich(
         r.ltp = ltp
         if ltp is not None and p.entry_price is not None and p.status is TradePlanStatus.OPEN:
             d = 1 if p.side.value == "BUY" else -1
-            r.unrealized_pnl = (ltp - p.entry_price) * p.quantity * d
+            r.unrealized_pnl = (ltp - p.entry_price) * p.open_quantity * d
         out.append(r)
     return out
 
@@ -177,6 +181,82 @@ async def close_trade(
 ) -> TradePlanRead:
     plan = await container.engine.close_plan(plan_id)
     return (await _enrich(container, session, [plan]))[0]
+
+
+@router.patch(
+    "/trades/{plan_id}",
+    response_model=TradePlanRead,
+    summary="Change stop-loss, targets (TP1/TP2...) or trailing of a running trade",
+)
+async def update_trade(
+    plan_id: uuid.UUID, body: TradeUpdateBody, container: ContainerDep, session: SessionDep
+) -> TradePlanRead:
+    plan = await container.engine.update_plan(
+        plan_id,
+        stop_loss=body.stop_loss,
+        targets=[TargetLeg(price=t.price, quantity=t.quantity) for t in body.targets]
+        if body.targets is not None
+        else None,
+        trail_mode=body.trail_mode,
+        trail_value=body.trail_value,
+    )
+    return (await _enrich(container, session, [plan]))[0]
+
+
+@router.post(
+    "/trades/{plan_id}/exit",
+    response_model=TradePlanRead,
+    summary="Exit some lots (or everything) of an open trade at market",
+)
+async def exit_trade(
+    plan_id: uuid.UUID,
+    container: ContainerDep,
+    session: SessionDep,
+    body: TradeExitBody | None = None,
+) -> TradePlanRead:
+    plan = await container.engine.exit_plan(plan_id, body.quantity if body else None)
+    return (await _enrich(container, session, [plan]))[0]
+
+
+@router.post(
+    "/trades/{plan_id}/enter-now",
+    response_model=TradePlanRead,
+    summary="Enter a waiting trade now at market instead of waiting for the entry level",
+)
+async def enter_now(
+    plan_id: uuid.UUID, container: ContainerDep, session: SessionDep
+) -> TradePlanRead:
+    plan = await container.engine.enter_now(plan_id)
+    return (await _enrich(container, session, [plan]))[0]
+
+
+@router.post(
+    "/trades/{plan_id}/stop-to-cost",
+    response_model=TradePlanRead,
+    summary="Move the stop-loss to the entry price",
+)
+async def stop_to_cost(
+    plan_id: uuid.UUID, container: ContainerDep, session: SessionDep
+) -> TradePlanRead:
+    plan = await Repository(session, TradePlan).get(plan_id)
+    if plan.entry_price is None:
+        raise InvalidInputError("The entry has not filled yet.")
+    plan = await container.engine.update_plan(plan_id, stop_loss=plan.entry_price)
+    return (await _enrich(container, session, [plan]))[0]
+
+
+@router.post(
+    "/trading/exit-all",
+    response_model=ExitAllResult,
+    summary="Panic button: kill switch on, cancel waiting trades, exit everything",
+)
+async def exit_all(container: ContainerDep) -> dict[str, int]:
+    return await container.engine.exit_all("portal")
+
+
+@router.post("/trading/kill-switch", status_code=status.HTTP_204_NO_CONTENT)
+async def kill_switch(body: KillSwitchBody, container: ContainerDep) -> None:
+    await container.engine.set_kill_switch(body.on, "portal")
 
 
 @router.post(

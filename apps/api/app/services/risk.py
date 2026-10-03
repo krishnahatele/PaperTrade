@@ -6,7 +6,7 @@ from decimal import ROUND_CEILING, ROUND_DOWN, ROUND_FLOOR, ROUND_HALF_UP, Decim
 
 from pydantic import BaseModel, Field
 
-from app.models.enums import Side
+from app.models.enums import ExitMode, Side, TrailMode
 
 
 class AccountRiskSettings(BaseModel):
@@ -20,7 +20,17 @@ class AccountRiskSettings(BaseModel):
     # If risk-based sizing rounds to zero lots, still take 1 lot when its risk is
     # at most twice the per-trade budget.
     allow_min_lot: bool = True
-    target_index: int = Field(default=1, ge=1, le=10, description="Exit at target N (1 = first)")
+    # How the position is taken off: everything at one target, or split lot-wise
+    # across the first N targets (TP1, TP2, ...).
+    exit_mode: ExitMode = ExitMode.SPLIT
+    target_index: int = Field(
+        default=1, ge=1, le=10, description="Single mode: exit everything at target N"
+    )
+    max_split_targets: int = Field(default=3, ge=1, le=10)
+    # Trailing stop-loss: step = SL to cost after TP1, to TP1 after TP2, ...;
+    # points / percent = SL follows the best price by that distance.
+    trail_mode: TrailMode = TrailMode.STEP
+    trail_value: Decimal = Field(default=Decimal("0"), ge=0)
     entry_tolerance_pct: Decimal = Field(default=Decimal("0.5"), ge=0, le=10)
     slippage_bps: int = Field(default=5, ge=0, le=500)
     charges_per_order: Decimal = Field(default=Decimal("20"), ge=0)
@@ -87,3 +97,65 @@ def apply_fill(
     if (new_qty > 0) != (qty > 0):  # flipped through zero
         return new_qty, price, realized
     return new_qty, avg, realized
+
+
+class TargetLeg(BaseModel):
+    """One take-profit level of a trade: exit ``quantity`` at ``price``."""
+
+    price: Decimal
+    quantity: int = Field(gt=0)
+    status: str = "open"  # open | hit | cancelled
+
+
+def split_targets(
+    s: AccountRiskSettings, targets: list[Decimal], quantity: int, lot_size: int
+) -> list[TargetLeg]:
+    """Spread ``quantity`` over the signal's targets according to the account's exit mode.
+
+    Split mode works in whole lots and front-loads: 3 lots over 2 targets is
+    2 lots at TP1 and 1 at TP2.
+    """
+    if not targets or quantity <= 0:
+        return []
+    lot = max(lot_size, 1)
+    lots = max(quantity // lot, 1)
+    if s.exit_mode is ExitMode.SINGLE or lots == 1:
+        idx = min(s.target_index, len(targets)) - 1 if s.exit_mode is ExitMode.SINGLE else 0
+        return [TargetLeg(price=targets[idx], quantity=quantity)]
+    n = min(len(targets), lots, s.max_split_targets)
+    base, extra = divmod(lots, n)
+    legs = [
+        TargetLeg(price=targets[i], quantity=(base + (1 if i < extra else 0)) * lot)
+        for i in range(n)
+    ]
+    legs[-1].quantity += quantity - sum(leg.quantity for leg in legs)  # odd (non-lot) remainder
+    return legs
+
+
+def trail_stop(
+    side: Side,
+    mode: TrailMode,
+    value: Decimal,
+    stop: Decimal,
+    best: Decimal,
+    tick: Decimal,
+) -> Decimal | None:
+    """New (tighter) stop for points/percent trailing, or None if it should not move."""
+    if mode not in (TrailMode.POINTS, TrailMode.PERCENT) or value <= 0:
+        return None
+    dist = value if mode is TrailMode.POINTS else best * value / 100
+    if side is Side.BUY:
+        cand = round_to_tick(best - dist, tick, Side.SELL)
+        return cand if cand > stop else None
+    cand = round_to_tick(best + dist, tick, Side.BUY)
+    return cand if cand < stop else None
+
+
+def step_stop(side: Side, entry: Decimal, legs: list[TargetLeg], stop: Decimal) -> Decimal | None:
+    """Step trailing after targets hit: TP1 hit -> SL at cost, TP2 hit -> SL at TP1, ..."""
+    hit = [leg for leg in legs if leg.status == "hit"]
+    if not hit:
+        return None
+    cand = entry if len(hit) == 1 else hit[-2].price
+    better = cand > stop if side is Side.BUY else cand < stop
+    return cand if better else None

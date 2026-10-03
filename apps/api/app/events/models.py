@@ -34,6 +34,11 @@ class EventType(StrEnum):
     TRADE_PLAN_CREATED = "trade_plan.created"
     TRADE_PLAN_OPENED = "trade_plan.opened"
     TRADE_PLAN_CLOSED = "trade_plan.closed"
+    TRADE_PLAN_UPDATED = "trade_plan.updated"  # SL / targets / trailing changed
+    TRADE_PLAN_REDUCED = "trade_plan.reduced"  # partial exit (TP1 hit, exit some qty)
+    ORDER_MODIFIED = "order.modified"
+    EXIT_ALL = "trading.exit_all"
+    KILL_SWITCH_CHANGED = "trading.kill_switch_changed"
     SIGNAL_EXECUTION_SKIPPED = "signal.execution_skipped"
     MANUAL_PRICE_SET = "market.manual_price_set"
     BROKER_ACCOUNT_UPDATED = "broker_account.updated"

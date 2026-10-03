@@ -111,6 +111,21 @@ class TradePlanStatus(StrEnum):
 class ExitReason(StrEnum):
     TARGET = "target"
     STOP = "stop"
+    TRAILING_STOP = "trailing_stop"  # stop that had been moved up (cost / TP1 / trail)
     MANUAL = "manual"
+    EXIT_ALL = "exit_all"  # panic button / kill switch
+    END_OF_DAY = "end_of_day"  # replay square-off
     EXPIRED = "expired"
     CANCELLED = "cancelled"
+
+
+class ExitMode(StrEnum):
+    SINGLE = "single"  # all quantity at one target
+    SPLIT = "split"  # lot-wise across TP1, TP2, ...
+
+
+class TrailMode(StrEnum):
+    NONE = "none"
+    STEP = "step"  # SL to cost after TP1, to TP1 after TP2 ...
+    POINTS = "points"
+    PERCENT = "percent"

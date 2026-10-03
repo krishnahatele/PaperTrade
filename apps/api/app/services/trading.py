@@ -4,8 +4,13 @@
   position sizing, and an entry order.
 * ``tick`` (every ~2 s in the background) matches working paper orders against
   last-traded prices, books fills into positions, and manages each plan's
-  bracket: once the entry fills, a stop-loss (SL-M) and a target (LIMIT) are
-  placed; when one fills the other is cancelled.
+  exits: once the entry fills, a stop-loss (SL-M) for the open quantity and one
+  LIMIT order per take-profit leg (TP1, TP2, ...) are placed. A target fill
+  reduces the open quantity (the stop shrinks with it and, with step trailing,
+  moves to cost / the previous target); a stop fill closes what is left.
+  Points/percent trailing moves the stop as the best price improves.
+* ``update_plan`` / ``exit_plan`` / ``enter_now`` / ``exit_all`` are the manual
+  controls used by the portal and the Telegram bot.
 
 Live (real-money) accounts are refused here; see ``docs/architecture.md``.
 """
@@ -39,14 +44,25 @@ from app.models.enums import (
     Side,
     SignalStatus,
     TradePlanStatus,
+    TrailMode,
 )
 from app.services.market_data import MarketDataService
-from app.services.risk import AccountRiskSettings, apply_fill, round_to_tick, size_position
+from app.services.risk import (
+    AccountRiskSettings,
+    TargetLeg,
+    apply_fill,
+    round_to_tick,
+    size_position,
+    split_targets,
+    step_stop,
+    trail_stop,
+)
 from app.services.runtime import RuntimeStore, TradingRuntime
 
 log = get_logger("marketos.trading")
 IST = ZoneInfo("Asia/Kolkata")
 WORKING = (OrderStatus.OPEN, OrderStatus.SUBMITTED, OrderStatus.PARTIALLY_FILLED)
+EXIT_ROLES = (OrderRole.STOP, OrderRole.TARGET, OrderRole.EXIT)
 PAPER_ACCOUNT_LABEL = "Paper"
 
 
@@ -69,6 +85,20 @@ def _req(value: T | None, what: str) -> T:
 
 def _opposite(side: Side) -> Side:
     return Side.SELL if side is Side.BUY else Side.BUY
+
+
+def legs_of(plan: TradePlan) -> list[TargetLeg]:
+    return [TargetLeg.model_validate(x) for x in plan.targets or []]
+
+
+def _set_legs(plan: TradePlan, legs: list[TargetLeg]) -> None:
+    plan.targets = [leg.model_dump(mode="json") for leg in legs]
+    open_legs = [leg for leg in legs if leg.status != "cancelled"]
+    plan.target = open_legs[0].price if open_legs else None
+
+
+def _direction(side: Side) -> int:
+    return 1 if side is Side.BUY else -1
 
 
 def _product_for(inst: Instrument) -> ProductType:
@@ -248,7 +278,7 @@ class TradingEngine:
                 raise SkipError(sizing.reason or "position size is zero")
 
             targets = [Decimal(t) for t in sig.targets]
-            target = targets[min(settings.target_index, len(targets)) - 1] if targets else None
+            legs = split_targets(settings, targets, sizing.quantity, inst.lot_size)
             plan = TradePlan(
                 signal_id=sig.id,
                 broker_account_id=acct.id,
@@ -258,9 +288,12 @@ class TradingEngine:
                 quantity=sizing.quantity,
                 planned_entry=ref,
                 stop_loss=sig.stop_loss,
-                target=target,
+                initial_stop_loss=sig.stop_loss,
+                trailing={"mode": settings.trail_mode.value, "value": str(settings.trail_value)},
+                open_quantity=0,
                 status=TradePlanStatus.PENDING,
             )
+            _set_legs(plan, legs)
             s.add(plan)
             await s.flush()
 
@@ -320,7 +353,8 @@ class TradingEngine:
                         "quantity": plan.quantity,
                         "entry": str(ref),
                         "stop": str(plan.stop_loss),
-                        "target": str(target) if target else None,
+                        "target": str(plan.target) if plan.target else None,
+                        "targets": [f"{leg.quantity}@{leg.price}" for leg in legs],
                         "entry_type": order_type,
                     },
                 )
@@ -393,50 +427,333 @@ class TradingEngine:
             if order.trade_plan_id and order.role is OrderRole.ENTRY:
                 plan = await s.get(TradePlan, order.trade_plan_id)
                 if plan and plan.status is TradePlanStatus.PENDING:
-                    self._close_plan(plan, None, ExitReason.CANCELLED, TradePlanStatus.CANCELLED)
+                    self._close_plan(plan, ExitReason.CANCELLED, TradePlanStatus.CANCELLED)
             await s.commit()
             await s.refresh(order)
         await self._flush_events()
         return order
 
     async def close_plan(self, plan_id: uuid.UUID) -> TradePlan:
+        """Cancel a pending trade, or exit an open one completely at market."""
+        return await self.exit_plan(plan_id, None)
+
+    async def exit_plan(
+        self, plan_id: uuid.UUID, quantity: int | None, reason: ExitReason = ExitReason.MANUAL
+    ) -> TradePlan:
+        """Exit ``quantity`` (whole lots) of an open trade at market; None = everything."""
         async with self.lock, self.sf() as s:
             plan = await s.get(TradePlan, plan_id)
             if plan is None:
                 raise NotFoundError("Trade not found")
-            orders = await self._plan_orders(s, plan.id)
-            if plan.status is TradePlanStatus.PENDING:
-                for o in orders:
-                    if o.status in WORKING:
-                        self._set_status(o, OrderStatus.CANCELLED, "trade cancelled")
-                self._close_plan(plan, None, ExitReason.CANCELLED, TradePlanStatus.CANCELLED)
-            elif plan.status is TradePlanStatus.OPEN:
-                if any(o.role is OrderRole.EXIT and o.status in WORKING for o in orders):
-                    raise InvalidInputError("An exit order is already working.")
-                for o in orders:
-                    if o.role in (OrderRole.STOP, OrderRole.TARGET) and o.status in WORKING:
-                        self._set_status(o, OrderStatus.CANCELLED, "manual exit")
-                acct = _req(await s.get(BrokerAccount, plan.broker_account_id), "Account")
-                inst = _req(await s.get(Instrument, plan.instrument_id), "Instrument")
-                await self._new_order(
-                    s,
-                    acct,
-                    inst,
-                    plan,
-                    _opposite(plan.side),
-                    plan.quantity,
-                    OrderType.MARKET,
-                    None,
-                    None,
-                    OrderRole.EXIT,
-                )
-            else:
-                raise InvalidInputError(f"Trade is already {plan.status}.")
+            await self._exit_plan(s, plan, quantity, reason)
             await s.commit()
         await self._flush_events()
         await self.tick()
         async with self.sf() as s:
             return _req(await s.get(TradePlan, plan_id), "Trade")
+
+    async def _exit_plan(
+        self, s: AsyncSession, plan: TradePlan, quantity: int | None, reason: ExitReason
+    ) -> None:
+        orders = await self._plan_orders(s, plan.id)
+        if plan.status is TradePlanStatus.PENDING:
+            if quantity is not None:
+                raise InvalidInputError("The entry has not filled yet; cancel the trade instead.")
+            for o in orders:
+                if o.status in WORKING:
+                    self._set_status(o, OrderStatus.CANCELLED, "trade cancelled")
+            self._close_plan(
+                plan,
+                ExitReason.EXIT_ALL if reason is ExitReason.EXIT_ALL else ExitReason.CANCELLED,
+                TradePlanStatus.CANCELLED,
+            )
+            return
+        if plan.status is not TradePlanStatus.OPEN:
+            raise InvalidInputError(f"Trade is already {plan.status}.")
+        if any(o.role is OrderRole.EXIT and o.status in WORKING for o in orders):
+            raise InvalidInputError("An exit order is already working.")
+        inst = _req(await s.get(Instrument, plan.instrument_id), "Instrument")
+        full = quantity is None or quantity >= plan.open_quantity
+        qty = plan.open_quantity if full or quantity is None else quantity
+        if qty <= 0:
+            raise InvalidInputError("Quantity must be positive.")
+        if not full and qty % max(inst.lot_size, 1):
+            raise InvalidInputError(f"Quantity must be whole lots ({inst.lot_size} per lot).")
+        if full:
+            for o in orders:
+                if o.role in (OrderRole.STOP, OrderRole.TARGET) and o.status in WORKING:
+                    self._set_status(o, OrderStatus.CANCELLED, "manual exit")
+        acct = _req(await s.get(BrokerAccount, plan.broker_account_id), "Account")
+        order = await self._new_order(
+            s,
+            acct,
+            inst,
+            plan,
+            _opposite(plan.side),
+            qty,
+            OrderType.MARKET,
+            None,
+            None,
+            OrderRole.EXIT,
+        )
+        order.status_message = reason.value
+
+    async def enter_now(self, plan_id: uuid.UUID) -> TradePlan:
+        """Skip waiting for the signal's entry level: buy/sell now at market."""
+        if (await self.runtime.get(TradingRuntime)).kill_switch:
+            raise InvalidInputError("Kill switch is on.")
+        async with self.lock, self.sf() as s:
+            plan = await s.get(TradePlan, plan_id)
+            if plan is None:
+                raise NotFoundError("Trade not found")
+            if plan.status is not TradePlanStatus.PENDING:
+                raise InvalidInputError(
+                    f"Trade is {plan.status}; only waiting trades can enter now."
+                )
+            inst = _req(await s.get(Instrument, plan.instrument_id), "Instrument")
+            ltp = (await self.market.ltp([inst])).get(inst.id)
+            if ltp is None:
+                raise InvalidInputError("No live price for this instrument right now.")
+            if (plan.side is Side.BUY and ltp <= plan.stop_loss) or (
+                plan.side is Side.SELL and ltp >= plan.stop_loss
+            ):
+                raise InvalidInputError(
+                    f"Price {ltp} is already past the stop-loss {plan.stop_loss}."
+                )
+            for o in await self._plan_orders(s, plan.id):
+                if o.role is OrderRole.ENTRY and o.status in WORKING:
+                    self._set_status(o, OrderStatus.CANCELLED, "replaced by enter-now")
+            acct = _req(await s.get(BrokerAccount, plan.broker_account_id), "Account")
+            await self._new_order(
+                s,
+                acct,
+                inst,
+                plan,
+                plan.side,
+                plan.quantity,
+                OrderType.MARKET,
+                None,
+                None,
+                OrderRole.ENTRY,
+            )
+            await s.commit()
+        await self._flush_events()
+        await self.tick()
+        async with self.sf() as s:
+            return _req(await s.get(TradePlan, plan_id), "Trade")
+
+    async def update_plan(
+        self,
+        plan_id: uuid.UUID,
+        *,
+        stop_loss: Decimal | None = None,
+        targets: list[TargetLeg] | None = None,
+        trail_mode: TrailMode | None = None,
+        trail_value: Decimal | None = None,
+        by: str = "user",
+    ) -> TradePlan:
+        """Change a trade's stop-loss, take-profit ladder or trailing while it runs."""
+        async with self.lock, self.sf() as s:
+            plan = await s.get(TradePlan, plan_id)
+            if plan is None:
+                raise NotFoundError("Trade not found")
+            if plan.status not in (TradePlanStatus.PENDING, TradePlanStatus.OPEN):
+                raise InvalidInputError(f"Trade is already {plan.status}.")
+            inst = _req(await s.get(Instrument, plan.instrument_id), "Instrument")
+            changes: dict[str, object] = {"by": by}
+            if trail_mode is not None or trail_value is not None:
+                tr = dict(plan.trailing or {})
+                if trail_mode is not None:
+                    tr["mode"] = trail_mode.value
+                if trail_value is not None:
+                    tr["value"] = str(trail_value)
+                plan.trailing = tr
+                changes["trailing"] = tr
+            if stop_loss is not None:
+                stop_loss = round_to_tick(stop_loss, inst.tick_size)
+                if plan.status is TradePlanStatus.OPEN:
+                    ltp = (await self.market.ltp([inst])).get(inst.id)
+                    if ltp is not None and (
+                        (plan.side is Side.BUY and stop_loss >= ltp)
+                        or (plan.side is Side.SELL and stop_loss <= ltp)
+                    ):
+                        raise InvalidInputError(
+                            f"Stop-loss {stop_loss} is past the current price {ltp}; "
+                            "use Exit instead."
+                        )
+                else:
+                    ref = plan.planned_entry
+                    if ref is not None and (
+                        (plan.side is Side.BUY and stop_loss >= ref)
+                        or (plan.side is Side.SELL and stop_loss <= ref)
+                    ):
+                        raise InvalidInputError("Stop-loss must be on the losing side of entry.")
+                await self._move_stop(s, plan, stop_loss, by)
+                changes["stop"] = str(stop_loss)
+            if targets is not None:
+                await self._replace_targets(s, plan, inst, targets)
+                changes["targets"] = [f"{t.quantity}@{t.price}" for t in legs_of(plan)]
+            self._queue(
+                Event(
+                    type=EventType.TRADE_PLAN_UPDATED,
+                    aggregate_type="trade_plan",
+                    aggregate_id=plan.id,
+                    payload={"symbol": inst.tradingsymbol, **changes},
+                )
+            )
+            await s.commit()
+        await self._flush_events()
+        await self.tick()
+        async with self.sf() as s:
+            return _req(await s.get(TradePlan, plan_id), "Trade")
+
+    async def _replace_targets(
+        self, s: AsyncSession, plan: TradePlan, inst: Instrument, new: list[TargetLeg]
+    ) -> None:
+        lot = max(inst.lot_size, 1)
+        d = _direction(plan.side)
+        ref = plan.entry_price or plan.planned_entry
+        for leg in new:
+            if leg.quantity % lot:
+                raise InvalidInputError(f"Target quantities must be whole lots ({lot} per lot).")
+            if ref is not None and (leg.price - ref) * d <= 0:
+                raise InvalidInputError(f"Target {leg.price} is not on the profit side of {ref}.")
+        old = legs_of(plan)
+        kept = [leg for leg in old if leg.status == "hit"]
+        avail = plan.quantity if plan.status is TradePlanStatus.PENDING else plan.open_quantity
+        if sum(leg.quantity for leg in new) > avail:
+            raise InvalidInputError(f"Targets add up to more than the open quantity ({avail}).")
+        for o in await self._plan_orders(s, plan.id):
+            if o.role is OrderRole.TARGET and o.status in WORKING:
+                self._set_status(o, OrderStatus.CANCELLED, "targets changed")
+        legs = kept + [TargetLeg(price=leg.price, quantity=leg.quantity) for leg in new]
+        _set_legs(plan, legs)
+        if plan.status is TradePlanStatus.OPEN:
+            acct = _req(await s.get(BrokerAccount, plan.broker_account_id), "Account")
+            for i, leg in enumerate(legs):
+                if leg.status == "open":
+                    o = await self._new_order(
+                        s,
+                        acct,
+                        inst,
+                        plan,
+                        _opposite(plan.side),
+                        leg.quantity,
+                        OrderType.LIMIT,
+                        leg.price,
+                        None,
+                        OrderRole.TARGET,
+                    )
+                    o.leg = i
+
+    async def _move_stop(self, s: AsyncSession, plan: TradePlan, stop: Decimal, by: str) -> None:
+        old = plan.stop_loss
+        plan.stop_loss = stop
+        for o in await self._plan_orders(s, plan.id):
+            if o.role is OrderRole.STOP and o.status in WORKING:
+                self._modify(o, trigger=stop)
+        if by != "user":  # user edits publish one combined update event
+            self._queue(
+                Event(
+                    type=EventType.TRADE_PLAN_UPDATED,
+                    aggregate_type="trade_plan",
+                    aggregate_id=plan.id,
+                    payload={"stop": str(stop), "from": str(old), "by": by},
+                )
+            )
+
+    async def exit_all(self, by: str = "user") -> dict[str, int]:
+        """Panic button: turn the kill switch on, cancel waiting trades, exit every
+        open trade and flatten any other paper position at market."""
+        await self.runtime.update(TradingRuntime, kill_switch=True)
+        self._queue(
+            Event(
+                type=EventType.KILL_SWITCH_CHANGED,
+                aggregate_type="trading",
+                payload={"kill_switch": True, "by": by},
+            )
+        )
+        cancelled = exited = flattened = 0
+        async with self.lock, self.sf() as s:
+            plans = list(
+                await s.scalars(
+                    select(TradePlan).where(
+                        TradePlan.status.in_([TradePlanStatus.PENDING, TradePlanStatus.OPEN])
+                    )
+                )
+            )
+            held: dict[tuple[uuid.UUID, uuid.UUID, ProductType], int] = {}
+            for plan in plans:
+                acct = await s.get(BrokerAccount, plan.broker_account_id)
+                if acct is None or acct.mode is not ExecutionMode.PAPER:
+                    continue
+                was_open = plan.status is TradePlanStatus.OPEN
+                orders = await self._plan_orders(s, plan.id)
+                exiting = any(o.role is OrderRole.EXIT and o.status in WORKING for o in orders)
+                if was_open:
+                    key = (plan.broker_account_id, plan.instrument_id, plan.product)
+                    held[key] = held.get(key, 0) + plan.open_quantity * _direction(plan.side)
+                if exiting:
+                    continue
+                await self._exit_plan(s, plan, None, ExitReason.EXIT_ALL)
+                if was_open:
+                    exited += 1
+                else:
+                    cancelled += 1
+            for o in await s.scalars(
+                select(Order).where(
+                    Order.mode == ExecutionMode.PAPER,
+                    Order.status.in_(WORKING),
+                    Order.trade_plan_id.is_(None),
+                )
+            ):
+                self._set_status(o, OrderStatus.CANCELLED, "exit all")
+            for pos in await s.scalars(select(Position).where(Position.quantity != 0)):
+                acct = await s.get(BrokerAccount, pos.broker_account_id)
+                if acct is None or acct.mode is not ExecutionMode.PAPER:
+                    continue
+                rest = pos.quantity - held.get(
+                    (pos.broker_account_id, pos.instrument_id, pos.product), 0
+                )
+                if rest == 0:
+                    continue
+                inst = _req(await s.get(Instrument, pos.instrument_id), "Instrument")
+                o = await self._new_order(
+                    s,
+                    acct,
+                    inst,
+                    None,
+                    Side.SELL if rest > 0 else Side.BUY,
+                    abs(rest),
+                    OrderType.MARKET,
+                    None,
+                    None,
+                    OrderRole.EXIT,
+                )
+                o.product = pos.product
+                flattened += 1
+            await s.commit()
+        result = {"cancelled": cancelled, "exited": exited, "flattened": flattened}
+        self._queue(
+            Event(
+                type=EventType.EXIT_ALL,
+                aggregate_type="trading",
+                payload={**result, "by": by},
+            )
+        )
+        await self._flush_events()
+        await self.tick()
+        return result
+
+    async def set_kill_switch(self, on: bool, by: str = "user") -> None:
+        await self.runtime.update(TradingRuntime, kill_switch=on)
+        await self._publish(
+            Event(
+                type=EventType.KILL_SWITCH_CHANGED,
+                aggregate_type="trading",
+                payload={"kill_switch": on, "by": by},
+            )
+        )
 
     # ------------------------------------------------------------------ tick
     async def tick(self) -> int:
@@ -468,9 +785,7 @@ class TradingEngine:
                     if o.trade_plan_id and o.role is OrderRole.ENTRY:
                         plan = await s.get(TradePlan, o.trade_plan_id)
                         if plan and plan.status is TradePlanStatus.PENDING:
-                            self._close_plan(
-                                plan, None, ExitReason.EXPIRED, TradePlanStatus.CANCELLED
-                            )
+                            self._close_plan(plan, ExitReason.EXPIRED, TradePlanStatus.CANCELLED)
                     continue
                 ltp = prices.get(o.instrument_id)
                 if ltp is None:
@@ -485,11 +800,49 @@ class TradingEngine:
                 px = fill_price(o, ltp, settings.slippage_bps, inst.tick_size)
                 if px is None:
                     continue
-                await self._fill(s, o, inst, px, settings)
-                fills += 1
+                if await self._fill(s, o, inst, px, settings):
+                    fills += 1
+            await self._trail(s, instruments, prices)
             await s.commit()
         await self._flush_events()
         return fills
+
+    async def _trail(
+        self,
+        s: AsyncSession,
+        instruments: dict[uuid.UUID, Instrument],
+        prices: dict[uuid.UUID, Decimal],
+    ) -> None:
+        """Track each open trade's best price and apply points/percent trailing."""
+        plans = await s.scalars(
+            select(TradePlan).where(
+                TradePlan.status == TradePlanStatus.OPEN,
+                TradePlan.instrument_id.in_(list(prices)),
+            )
+        )
+        for plan in plans:
+            ltp = prices[plan.instrument_id]
+            best = plan.best_price or plan.entry_price or ltp
+            best = max(best, ltp) if plan.side is Side.BUY else min(best, ltp)
+            if best != plan.best_price:
+                plan.best_price = best
+            tr = plan.trailing or {}
+            try:
+                mode = TrailMode(tr.get("mode", "none"))
+                value = Decimal(str(tr.get("value") or "0"))
+            except (ValueError, ArithmeticError):
+                continue
+            inst = instruments.get(plan.instrument_id)
+            new = trail_stop(
+                plan.side,
+                mode,
+                value,
+                plan.stop_loss,
+                best,
+                inst.tick_size if inst else Decimal("0.05"),
+            )
+            if new is not None:
+                await self._move_stop(s, plan, new, f"trail:{mode.value}")
 
     async def run_forever(self) -> None:
         while True:
@@ -507,9 +860,18 @@ class TradingEngine:
         inst: Instrument,
         px: Decimal,
         settings: AccountRiskSettings,
-    ) -> None:
+    ) -> bool:
         now = datetime.now(UTC)
         qty = o.quantity - o.filled_quantity
+        plan = await s.get(TradePlan, o.trade_plan_id) if o.trade_plan_id else None
+        if plan is not None and o.role in EXIT_ROLES:
+            # Never exit more than the trade still holds (e.g. two exits in one tick).
+            if plan.status is not TradePlanStatus.OPEN or plan.open_quantity <= 0:
+                self._set_status(o, OrderStatus.CANCELLED, "trade already closed")
+                return False
+            if qty > plan.open_quantity:
+                qty = plan.open_quantity
+                o.quantity = o.filled_quantity + qty
         s.add(
             Trade(
                 order_id=o.id,
@@ -533,6 +895,7 @@ class TradingEngine:
                     "quantity": qty,
                     "price": str(px),
                     "role": o.role,
+                    "trade_plan_id": str(plan.id) if plan else None,
                 },
             )
         )
@@ -558,75 +921,169 @@ class TradingEngine:
             pos.quantity, pos.average_price, pos.realized_pnl, o.side, qty, px
         )
 
-        if o.trade_plan_id is None:
-            return
-        plan = await s.get(TradePlan, o.trade_plan_id)
         if plan is None:
-            return
+            return True
         plan.charges = (plan.charges or Decimal("0")) + settings.charges_per_order
         acct = _req(await s.get(BrokerAccount, plan.broker_account_id), "Account")
         if o.role is OrderRole.ENTRY and plan.status is TradePlanStatus.PENDING:
             plan.status = TradePlanStatus.OPEN
             plan.entry_price = px
             plan.opened_at = now
-            exit_side = _opposite(plan.side)
-            await self._new_order(
-                s,
-                acct,
-                inst,
-                plan,
-                exit_side,
-                plan.quantity,
-                OrderType.SL_M,
-                None,
-                plan.stop_loss,
-                OrderRole.STOP,
-            )
-            if plan.target is not None:
-                await self._new_order(
-                    s,
-                    acct,
-                    inst,
-                    plan,
-                    exit_side,
-                    plan.quantity,
-                    OrderType.LIMIT,
-                    plan.target,
-                    None,
-                    OrderRole.TARGET,
-                )
+            plan.open_quantity = plan.quantity
+            plan.best_price = px
+            await self._place_exits(s, acct, inst, plan)
             self._queue(
                 Event(
                     type=EventType.TRADE_PLAN_OPENED,
                     aggregate_type="trade_plan",
                     aggregate_id=plan.id,
-                    payload={"symbol": inst.tradingsymbol, "entry_price": str(px)},
+                    payload={
+                        "symbol": inst.tradingsymbol,
+                        "entry_price": str(px),
+                        "quantity": plan.quantity,
+                    },
                 )
             )
-        elif (
-            o.role in (OrderRole.STOP, OrderRole.TARGET, OrderRole.EXIT)
-            and plan.status is TradePlanStatus.OPEN
-        ):
-            for sib in await self._plan_orders(s, plan.id):
-                if sib.id != o.id and sib.status in WORKING:
-                    self._set_status(sib, OrderStatus.CANCELLED, "other exit filled (OCO)")
-            reason = {OrderRole.STOP: ExitReason.STOP, OrderRole.TARGET: ExitReason.TARGET}.get(
-                o.role, ExitReason.MANUAL
-            )
-            self._close_plan(plan, px, reason, TradePlanStatus.CLOSED)
+        elif o.role in EXIT_ROLES and plan.status is TradePlanStatus.OPEN:
+            if o.role is OrderRole.TARGET:
+                reason = ExitReason.TARGET
+                legs = legs_of(plan)
+                if o.leg is not None and o.leg < len(legs):
+                    legs[o.leg].status = "hit"
+                    _set_legs(plan, legs)
+            elif o.role is OrderRole.STOP:
+                init = plan.initial_stop_loss or plan.stop_loss
+                moved = (plan.stop_loss - init) * _direction(plan.side) > 0
+                reason = ExitReason.TRAILING_STOP if moved else ExitReason.STOP
+            else:
+                try:
+                    reason = ExitReason(o.status_message or "manual")
+                except ValueError:
+                    reason = ExitReason.MANUAL
+            await self._reduce(s, plan, inst, o, qty, px, reason)
+        return True
 
-    def _close_plan(
-        self, plan: TradePlan, exit_px: Decimal | None, reason: ExitReason, status: TradePlanStatus
+    async def _place_exits(
+        self, s: AsyncSession, acct: BrokerAccount, inst: Instrument, plan: TradePlan
     ) -> None:
+        exit_side = _opposite(plan.side)
+        await self._new_order(
+            s,
+            acct,
+            inst,
+            plan,
+            exit_side,
+            plan.open_quantity,
+            OrderType.SL_M,
+            None,
+            plan.stop_loss,
+            OrderRole.STOP,
+        )
+        for i, leg in enumerate(legs_of(plan)):
+            if leg.status != "open":
+                continue
+            o = await self._new_order(
+                s,
+                acct,
+                inst,
+                plan,
+                exit_side,
+                leg.quantity,
+                OrderType.LIMIT,
+                leg.price,
+                None,
+                OrderRole.TARGET,
+            )
+            o.leg = i
+
+    async def _reduce(
+        self,
+        s: AsyncSession,
+        plan: TradePlan,
+        inst: Instrument,
+        filled: Order,
+        qty: int,
+        px: Decimal,
+        reason: ExitReason,
+    ) -> None:
+        """Book an exit of ``qty`` at ``px``; close the plan when nothing is left."""
+        entry = plan.entry_price or px
+        exited_before = plan.quantity - plan.open_quantity
+        plan.gross_pnl = (plan.gross_pnl or Decimal("0")) + (px - entry) * qty * _direction(
+            plan.side
+        )
+        plan.exit_price = ((plan.exit_price or Decimal("0")) * exited_before + px * qty) / (
+            exited_before + qty
+        )
+        plan.open_quantity -= qty
+        plan.realized_pnl = plan.gross_pnl - (plan.charges or Decimal("0"))
+        orders = await self._plan_orders(s, plan.id)
+        if plan.open_quantity <= 0:
+            for sib in orders:
+                if sib.id != filled.id and sib.status in WORKING:
+                    self._set_status(sib, OrderStatus.CANCELLED, "trade closed")
+            legs = legs_of(plan)
+            for leg in legs:
+                if leg.status == "open":
+                    leg.status = "cancelled"
+            plan.targets = [leg.model_dump(mode="json") for leg in legs]
+            self._close_plan(plan, reason, TradePlanStatus.CLOSED)
+            return
+        # Still holding some: shrink the stop, trim targets that no longer fit.
+        for sib in orders:
+            if sib.role is OrderRole.STOP and sib.status in WORKING:
+                self._modify(sib, quantity=plan.open_quantity)
+        legs = legs_of(plan)
+        excess = sum(leg.quantity for leg in legs if leg.status == "open") - plan.open_quantity
+        for i in reversed(range(len(legs))):
+            if excess <= 0:
+                break
+            leg = legs[i]
+            if leg.status != "open":
+                continue
+            cut = min(leg.quantity, excess)
+            excess -= cut
+            target_order = next(
+                (
+                    o
+                    for o in orders
+                    if o.role is OrderRole.TARGET and o.leg == i and o.status in WORKING
+                ),
+                None,
+            )
+            if cut == leg.quantity:
+                leg.status = "cancelled"
+                if target_order is not None:
+                    self._set_status(target_order, OrderStatus.CANCELLED, "quantity already exited")
+            else:
+                leg.quantity -= cut
+                if target_order is not None:
+                    self._modify(target_order, quantity=leg.quantity)
+        _set_legs(plan, legs)
+        self._queue(
+            Event(
+                type=EventType.TRADE_PLAN_REDUCED,
+                aggregate_type="trade_plan",
+                aggregate_id=plan.id,
+                payload={
+                    "symbol": inst.tradingsymbol,
+                    "reason": reason,
+                    "quantity": qty,
+                    "price": str(px),
+                    "open_quantity": plan.open_quantity,
+                },
+            )
+        )
+        mode = (plan.trailing or {}).get("mode")
+        if reason is ExitReason.TARGET and mode == TrailMode.STEP.value:
+            new = step_stop(plan.side, entry, legs, plan.stop_loss)
+            if new is not None:
+                await self._move_stop(s, plan, new, "trail:step")
+
+    def _close_plan(self, plan: TradePlan, reason: ExitReason, status: TradePlanStatus) -> None:
         plan.status = status
         plan.exit_reason = reason
         plan.closed_at = datetime.now(UTC)
-        if exit_px is not None and plan.entry_price is not None:
-            direction = 1 if plan.side is Side.BUY else -1
-            plan.exit_price = exit_px
-            plan.realized_pnl = (exit_px - plan.entry_price) * plan.quantity * direction - (
-                plan.charges or Decimal("0")
-            )
         self._queue(
             Event(
                 type=EventType.TRADE_PLAN_CLOSED,
@@ -710,6 +1167,26 @@ class TradingEngine:
                 payload={"from": old, "to": status, "message": message},
             )
         )
+
+    def _modify(
+        self, o: Order, *, quantity: int | None = None, trigger: Decimal | None = None
+    ) -> None:
+        changes: dict[str, object] = {}
+        if quantity is not None and quantity != o.quantity:
+            o.quantity = quantity
+            changes["quantity"] = quantity
+        if trigger is not None and trigger != o.trigger_price:
+            o.trigger_price = trigger
+            changes["trigger"] = str(trigger)
+        if changes:
+            self._queue(
+                Event(
+                    type=EventType.ORDER_MODIFIED,
+                    aggregate_type="order",
+                    aggregate_id=o.id,
+                    payload=changes,
+                )
+            )
 
     async def _plan_orders(self, s: AsyncSession, plan_id: uuid.UUID) -> Sequence[Order]:
         return list(await s.scalars(select(Order).where(Order.trade_plan_id == plan_id)))

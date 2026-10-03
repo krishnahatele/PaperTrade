@@ -3,10 +3,18 @@ from __future__ import annotations
 import uuid
 from datetime import datetime
 from decimal import Decimal
+from typing import Any
 
 from pydantic import BaseModel, Field
 
-from app.models.enums import ExitReason, OrderType, ProductType, Side, TradePlanStatus
+from app.models.enums import (
+    ExitReason,
+    OrderType,
+    ProductType,
+    Side,
+    TradePlanStatus,
+    TrailMode,
+)
 from app.schemas.common import ReadModel
 
 
@@ -20,9 +28,15 @@ class TradePlanRead(ReadModel):
     status: TradePlanStatus
     planned_entry: Decimal | None
     stop_loss: Decimal
+    initial_stop_loss: Decimal | None
     target: Decimal | None
+    targets: list[dict[str, Any]]
+    trailing: dict[str, Any]
+    open_quantity: int
+    best_price: Decimal | None
     entry_price: Decimal | None
     exit_price: Decimal | None
+    gross_pnl: Decimal | None
     realized_pnl: Decimal | None
     charges: Decimal
     exit_reason: ExitReason | None
@@ -42,6 +56,35 @@ class ManualOrderBody(BaseModel):
     order_type: OrderType = OrderType.MARKET
     price: Decimal | None = Field(default=None, gt=0)
     trigger_price: Decimal | None = Field(default=None, gt=0)
+
+
+class TargetLegBody(BaseModel):
+    price: Decimal = Field(gt=0)
+    quantity: int = Field(gt=0)
+
+
+class TradeUpdateBody(BaseModel):
+    """Any subset: new stop-loss, a new take-profit ladder (replaces the open legs),
+    trailing mode/value."""
+
+    stop_loss: Decimal | None = Field(default=None, gt=0)
+    targets: list[TargetLegBody] | None = Field(default=None, max_length=10)
+    trail_mode: TrailMode | None = None
+    trail_value: Decimal | None = Field(default=None, ge=0)
+
+
+class TradeExitBody(BaseModel):
+    quantity: int | None = Field(default=None, gt=0, description="Whole lots; omit for all")
+
+
+class KillSwitchBody(BaseModel):
+    on: bool
+
+
+class ExitAllResult(BaseModel):
+    cancelled: int
+    exited: int
+    flattened: int
 
 
 class ExecuteBody(BaseModel):
