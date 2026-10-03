@@ -16,11 +16,26 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from app.core.errors import MarketOSError
 from app.events import Event, EventBus, EventType
 from app.models import Instrument
-from app.models.enums import Exchange, InstrumentType
+from app.models.enums import Exchange, InstrumentType, Segment
 from app.parsing.models import ParsedSignal
 
 KITE_DUMP_URL = "https://api.kite.trade/instruments/{exchange}"
-DEFAULT_SYNC_EXCHANGES = (Exchange.NSE, Exchange.NFO)
+DEFAULT_SYNC_EXCHANGES = (Exchange.NSE, Exchange.NFO, Exchange.BSE, Exchange.BFO, Exchange.MCX)
+DERIVATIVE_EXCHANGES = (Exchange.NFO, Exchange.BFO, Exchange.MCX)
+
+
+def segment_of(inst: Instrument) -> Segment:
+    """Equity / F&O / Commodity / Currency, for reports and trading hours."""
+    if inst.instrument_type is InstrumentType.INDEX:
+        return Segment.INDEX
+    if inst.exchange is Exchange.MCX:
+        return Segment.COMMODITY
+    if inst.exchange is Exchange.CDS:
+        return Segment.CURRENCY
+    if inst.exchange in (Exchange.NFO, Exchange.BFO):
+        return Segment.FNO
+    return Segment.EQUITY
+
 
 CsvFetcher = Callable[[Exchange], Awaitable[str]]
 
@@ -136,39 +151,54 @@ class InstrumentService:
         )
         return counts
 
-    async def resolve(self, p: ParsedSignal) -> Instrument | None:
-        """Map a parsed signal to a concrete, active instrument (nearest expiry for F&O)."""
+    async def resolve(self, p: ParsedSignal, as_of: date | None = None) -> Instrument | None:
+        """Map a parsed signal to a concrete instrument (nearest expiry for F&O / MCX).
+
+        ``as_of`` resolves as of a past day (replay): expired contracts count if
+        they were live then.
+        """
         if not p.symbol_text or p.instrument_type is None:
             return None
         und = (p.underlying or p.symbol_text).upper()
-        today = datetime.now(UTC).date()
+        day = as_of or datetime.now(UTC).date()
+        live_only = as_of is None
         async with self.sf() as s:
             if p.instrument_type is InstrumentType.EQ:
                 for ex in (Exchange.NSE, Exchange.BSE):
-                    inst = await s.scalar(
-                        select(Instrument).where(
-                            Instrument.exchange == ex,
-                            Instrument.tradingsymbol == und,
-                            Instrument.is_active.is_(True),
-                        )
+                    q = select(Instrument).where(
+                        Instrument.exchange == ex, Instrument.tradingsymbol == und
                     )
+                    if live_only:
+                        q = q.where(Instrument.is_active.is_(True))
+                    inst = await s.scalar(q)
                     if inst is not None:
                         return inst
-                return None
+                # Commodities trade only as futures: "BUY CRUDEOIL 6400 SL 6350"
+                q = select(Instrument).where(
+                    Instrument.exchange == Exchange.MCX,
+                    Instrument.name == und,
+                    Instrument.instrument_type == InstrumentType.FUT,
+                    Instrument.expiry >= day,
+                )
+                if live_only:
+                    q = q.where(Instrument.is_active.is_(True))
+                return await s.scalar(q.order_by(Instrument.expiry).limit(1))
             q = select(Instrument).where(
                 Instrument.name == und,
                 Instrument.instrument_type == p.instrument_type,
-                Instrument.is_active.is_(True),
-                Instrument.expiry >= today,
-                Instrument.exchange.in_([Exchange.NFO, Exchange.BFO]),
+                Instrument.expiry >= day,
+                Instrument.exchange.in_(DERIVATIVE_EXCHANGES),
             )
+            if live_only:
+                q = q.where(Instrument.is_active.is_(True))
             if p.instrument_type in (InstrumentType.CE, InstrumentType.PE):
                 if p.strike is None:
                     return None
                 q = q.where(Instrument.strike == p.strike)
             month = _expiry_month(p.expiry_text)
             if month is not None:
-                q = q.where(Instrument.expiry >= date(today.year, month, 1))
+                year = day.year + (1 if month < day.month - 6 else 0)
+                q = q.where(Instrument.expiry >= date(year, month, 1))
             return await s.scalar(q.order_by(Instrument.expiry).limit(1))
 
 

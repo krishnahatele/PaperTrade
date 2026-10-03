@@ -11,6 +11,7 @@ from app.models.enums import Exchange
 from app.schemas.common import Page
 from app.schemas.instrument import InstrumentCreate, InstrumentRead
 from app.services.catalog import InstrumentService
+from app.services.instruments import DEFAULT_SYNC_EXCHANGES
 from app.services.repository import Repository
 
 router = APIRouter(prefix="/instruments", tags=["instruments"])
@@ -53,7 +54,7 @@ async def create_instrument(data: InstrumentCreate, session: SessionDep, bus: Bu
 
 
 class SyncBody(BaseModel):
-    exchanges: list[Exchange] = [Exchange.NSE, Exchange.NFO]
+    exchanges: list[Exchange] = list(DEFAULT_SYNC_EXCHANGES)
 
 
 @router.post(

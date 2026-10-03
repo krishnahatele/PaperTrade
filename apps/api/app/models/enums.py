@@ -14,6 +14,16 @@ class Exchange(StrEnum):
     CDS = "CDS"
 
 
+class Segment(StrEnum):
+    """Market segment, used for reporting and trading hours."""
+
+    EQUITY = "equity"
+    FNO = "fno"
+    COMMODITY = "commodity"
+    CURRENCY = "currency"
+    INDEX = "index"
+
+
 class InstrumentType(StrEnum):
     EQ = "EQ"
     FUT = "FUT"

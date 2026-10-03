@@ -181,3 +181,16 @@ def test_llm_output_is_validated() -> None:
 def test_llm_output_missing_side_is_not_signal() -> None:
     p = to_parsed({"is_signal": True, "side": None, "symbol_text": "X", "confidence": 0.9})
     assert p.is_signal is False
+
+
+def test_commodity_aliases_and_futures() -> None:
+    p = parse_rules("BUY CRUDE OIL 6400 SL 6350 TARGET 6450/6500")
+    assert p.is_signal
+    assert p.underlying == "CRUDEOIL"
+    assert p.instrument_type is InstrumentType.EQ  # resolved to the MCX future later
+    p = parse_rules("Buy Natural Gas 300 CE @ 12 sl 8 tgt 16")
+    assert p.underlying == "NATURALGAS"
+    assert p.instrument_type is InstrumentType.CE
+    p = parse_rules("SELL GOLD MINI FUT 72000 SL 72400 TGT 71500")
+    assert p.underlying == "GOLDM"
+    assert p.instrument_type is InstrumentType.FUT

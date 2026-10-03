@@ -30,6 +30,7 @@ from app.schemas.trading import (
     TradeUpdateBody,
 )
 from app.services.repository import Repository
+from app.services.instruments import segment_of
 from app.services.risk import AccountRiskSettings, TargetLeg
 from app.services.trading import SkipError
 
@@ -126,7 +127,11 @@ async def _enrich(
     for p in plans:
         r = TradePlanRead.model_validate(p)
         inst = insts.get(p.instrument_id)
-        r.tradingsymbol = inst.tradingsymbol if inst else None
+        if inst is not None:
+            r.tradingsymbol = inst.tradingsymbol
+            r.exchange = inst.exchange.value
+            r.segment = segment_of(inst).value
+            r.lot_size = inst.lot_size
         ltp = prices.get(p.instrument_id)
         r.ltp = ltp
         if ltp is not None and p.entry_price is not None and p.status is TradePlanStatus.OPEN:

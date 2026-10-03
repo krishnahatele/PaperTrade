@@ -44,6 +44,9 @@ class TradePlanRead(ReadModel):
     closed_at: datetime | None
     # enriched
     tradingsymbol: str | None = None
+    exchange: str | None = None
+    segment: str | None = None
+    lot_size: int | None = None
     ltp: Decimal | None = None
     unrealized_pnl: Decimal | None = None
 

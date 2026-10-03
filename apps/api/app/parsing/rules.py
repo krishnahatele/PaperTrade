@@ -121,6 +121,19 @@ INDEX_ALIASES = {
     "FIN NIFTY": "FINNIFTY",
     "MIDCAP NIFTY": "MIDCPNIFTY",
     "MIDCPNIFTY": "MIDCPNIFTY",
+    # MCX commodities as they are usually written
+    "CRUDE OIL MINI": "CRUDEOILM",
+    "CRUDE MINI": "CRUDEOILM",
+    "CRUDEOIL MINI": "CRUDEOILM",
+    "CRUDE OIL": "CRUDEOIL",
+    "CRUDE": "CRUDEOIL",
+    "NATURAL GAS MINI": "NATGASMINI",
+    "NATURAL GAS": "NATURALGAS",
+    "NAT GAS": "NATURALGAS",
+    "NG": "NATURALGAS",
+    "GOLD MINI": "GOLDM",
+    "SILVER MINI": "SILVERM",
+    "SILVER MIC": "SILVERMIC",
 }
 
 _FOLLOW_UP = re.compile(

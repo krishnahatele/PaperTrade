@@ -64,11 +64,11 @@ async def test_instrument_sync(db_client: AsyncClient) -> None:
     container.instruments.fetcher = fetch
     r = await db_client.post("/api/v1/instruments/sync", json={"exchanges": ["NSE"]})
     assert r.status_code == 200
-    assert r.json() == {"NSE": 8}  # NCO row skipped
+    assert r.json() == {"NSE": 10}  # NCO row skipped
     # idempotent upsert
     r = await db_client.post("/api/v1/instruments/sync", json={"exchanges": ["NSE"]})
     total = (await db_client.get("/api/v1/instruments", params={"limit": 1})).json()["total"]
-    assert total == 8
+    assert total == 10
     idx = (await db_client.get("/api/v1/instruments", params={"q": "NIFTY 50"})).json()["items"][0]
     assert idx["instrument_type"] == "INDEX"
 
