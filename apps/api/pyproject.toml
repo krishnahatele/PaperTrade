@@ -14,6 +14,7 @@ dependencies = [
     "pydantic-settings>=2.3",
     "structlog>=24.1",
     "cryptography>=43",
+    "telethon>=1.36",
 ]
 
 [dependency-groups]
@@ -54,7 +55,7 @@ plugins = ["pydantic.mypy"]
 exclude = ["alembic/versions/"]
 
 [[tool.mypy.overrides]]
-module = ["asyncpg.*"]
+module = ["asyncpg.*", "telethon.*", "kiteconnect.*"]
 ignore_missing_imports = true
 
 [tool.pytest.ini_options]

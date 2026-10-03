@@ -38,6 +38,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         await container.bus.publish(
             Event(type=EventType.SYSTEM_STARTED, payload={"version": __version__})
         )
+        await container.start_background()
         try:
             yield
         finally:

@@ -98,3 +98,32 @@ export type ParsingRuntime = {
 };
 
 export type RuntimeSettings = { trading: TradingRuntime; parsing: ParsingRuntime };
+
+export type TelegramStatus = {
+  configured: boolean;
+  authorized: boolean;
+  listening: boolean;
+  channels: number;
+  login_step: "code" | "password" | "done" | null;
+  messages_received: number;
+  last_message_at: string | null;
+  last_error: string | null;
+};
+
+export type TelegramChannel = {
+  id: string;
+  title: string;
+  username: string | null;
+  kind: string;
+  source_id: string | null;
+  source_enabled: boolean | null;
+};
+
+export type RawMessage = {
+  id: string;
+  source_id: string;
+  external_message_id: string;
+  content: string;
+  received_at: string;
+  status: string;
+};

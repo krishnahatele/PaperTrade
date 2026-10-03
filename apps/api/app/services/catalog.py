@@ -7,16 +7,17 @@ from __future__ import annotations
 
 import uuid
 
+from sqlalchemy import exists, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.errors import FeatureDisabledError, NotFoundError
+from app.core.errors import ConflictError, FeatureDisabledError, NotFoundError
 from app.events import Event, EventBus, EventType
 from app.models import BrokerAccount, Instrument, Signal, SignalSource
 from app.models.enums import ExecutionMode, SignalParser, SignalStatus
 from app.schemas.broker_account import BrokerAccountCreate
 from app.schemas.instrument import InstrumentCreate
 from app.schemas.signal import SignalCreate
-from app.schemas.signal_source import SignalSourceCreate
+from app.schemas.signal_source import SignalSourceCreate, SignalSourceUpdate
 from app.services.repository import Repository
 
 
@@ -54,6 +55,39 @@ class SignalSourceService:
             )
         )
         return obj
+
+    async def update(self, source_id: uuid.UUID, data: SignalSourceUpdate) -> SignalSource:
+        obj = await self.repo.get(source_id)
+        changes = data.model_dump(exclude_none=True)
+        for k, v in changes.items():
+            setattr(obj, k, v)
+        await self.repo.session.commit()
+        await self.repo.session.refresh(obj)
+        await self.bus.publish(
+            Event(
+                type=EventType.SIGNAL_SOURCE_UPDATED,
+                aggregate_type="signal_source",
+                aggregate_id=obj.id,
+                payload={"changes": sorted(changes)},
+            )
+        )
+        return obj
+
+    async def delete(self, source_id: uuid.UUID) -> None:
+        obj = await self.repo.get(source_id)
+        session = self.repo.session
+        if await session.scalar(select(exists().where(Signal.source_id == source_id))):
+            raise ConflictError("Source has signals; disable it instead of deleting.")
+        await session.delete(obj)
+        await session.commit()
+        await self.bus.publish(
+            Event(
+                type=EventType.SIGNAL_SOURCE_DELETED,
+                aggregate_type="signal_source",
+                aggregate_id=source_id,
+                payload={"name": obj.name},
+            )
+        )
 
 
 class BrokerAccountService:

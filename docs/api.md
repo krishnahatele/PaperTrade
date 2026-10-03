@@ -20,7 +20,54 @@ Machine-readable spec: `/openapi.json`.
   | 422 | (FastAPI) | Request validation failed, `{"detail": [...]}` |
 
 * Every response carries `X-Request-ID` (echoed if you send one) for log correlation.
-* No authentication in Phase 0. Bind to localhost only.
+* **Authentication**: every `/api/v1/*` route except `/api/v1/auth/*` requires
+  `Authorization: Bearer <token>` (401 otherwise). Health routes are public.
+  Disable only for local experiments with `MARKETOS_AUTH_ENABLED=false`.
+
+## Auth
+
+| Method | Path | Notes |
+|---|---|---|
+| GET | `/api/v1/auth/status` | `{auth_enabled, configured, authenticated}` |
+| POST | `/api/v1/auth/setup` | First run only: `{password}` (≥ 10 chars), returns `{token, expires_at}`. 409 once set |
+| POST | `/api/v1/auth/login` | `{password}` gives a token. 401 on a wrong password, 429 after 5 failures per minute |
+| POST | `/api/v1/auth/change-password` | `{current_password, new_password}`. Revokes all previous tokens |
+
+## Integrations (write-only credentials)
+
+Responses only say whether each credential is set, plus a masked hint (`••••3210`). Values are never returned.
+
+| Method | Path | Body |
+|---|---|---|
+| GET | `/api/v1/integrations` | Status of telegram / kite / llm |
+| PUT | `/api/v1/integrations/telegram` | any of `api_id` (digits), `api_hash` (32 hex), `phone` (`+<country><number>`). Resets the Telegram session |
+| DELETE | `/api/v1/integrations/telegram` | Logs out and removes all Telegram credentials |
+| PUT / DELETE | `/api/v1/integrations/kite` | `api_key`, `api_secret` |
+| PUT / DELETE | `/api/v1/integrations/llm` | `api_key` |
+
+## Runtime settings
+
+| Method | Path | Notes |
+|---|---|---|
+| GET | `/api/v1/settings` | `{trading, parsing}` |
+| PATCH | `/api/v1/settings/trading` | `kill_switch`, `auto_execute`, `live_armed` (403 unless `MARKETOS_LIVE_TRADING_ENABLED=true`), `min_confidence` (0–1), `signal_ttl_minutes` |
+| PATCH | `/api/v1/settings/parsing` | `mode` (`rules_only` / `rules_then_llm` / `llm_only`), `llm_model`, `llm_provider` |
+
+## Telegram
+
+| Method | Path | Notes |
+|---|---|---|
+| GET | `/api/v1/telegram/status` | configured, authorized, listening, channel count, login step, counters, last error |
+| POST | `/api/v1/telegram/login/start` | Sends a login code to the saved phone number, returns `{step: "code"}` |
+| POST | `/api/v1/telegram/login/code` | `{code}` returns `{step: "done"}` or `{step: "password"}` (2FA) |
+| POST | `/api/v1/telegram/login/password` | `{password}` returns `{step: "done"}` |
+| POST | `/api/v1/telegram/logout` | Ends the session and deletes it |
+| GET | `/api/v1/telegram/channels` | Your channels/groups, with `source_id` if already added |
+| POST | `/api/v1/telegram/channels` | `{channel_id, name, enabled}` creates a `telegram` signal source and starts listening |
+| POST | `/api/v1/telegram/sources/{id}/backfill?limit=50` | Fetches recent history and stores new messages, returning `{stored}` |
+
+Telegram errors: 403 `feature_disabled` (credentials missing), 400 `telegram_login_failed`,
+429 `telegram_rate_limited` (Telegram flood wait), 503 `telegram_unavailable` (cannot reach Telegram).
 
 ## Health
 
@@ -58,6 +105,8 @@ Machine-readable spec: `/openapi.json`.
 | GET | `/api/v1/signal-sources` | |
 | POST | `/api/v1/signal-sources` | `kind` (`telegram`/`manual`/`webhook`), `name`, `external_id`, `is_enabled`, `config` |
 | GET | `/api/v1/signal-sources/{id}` | |
+| PATCH | `/api/v1/signal-sources/{id}` | `name`, `is_enabled`, `config`. Refreshes the Telegram listener |
+| DELETE | `/api/v1/signal-sources/{id}` | 409 if signals reference it (disable instead) |
 | GET | `/api/v1/signal-sources/{id}/messages` | Raw inbound messages for the source, newest first |
 
 ## Signals
@@ -95,4 +144,5 @@ There are intentionally no endpoints that create, modify or cancel orders in thi
 | GET | `/api/v1/events` | Audit log, newest first. Filters: `event_type`, `aggregate_id`, `correlation_id` |
 
 Event types emitted today: `system.started`, `system.stopping`, `instrument.created`,
-`signal_source.created`, `broker_account.created`, `signal.created`.
+`signal_source.created|updated|deleted`, `broker_account.created`, `signal.created`,
+`raw_message.received`, `integration.updated`, `settings.updated`.

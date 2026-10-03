@@ -1,7 +1,7 @@
 # MarketOS architecture
 
-> Status: **Phase 0 (foundation)**. This document describes what exists now and
-> the seams that later phases plug into.
+> Status: **Phase 0–2 implemented** (foundation, encrypted credentials and auth, Telegram ingestion).
+> Signal parsing, market data, paper execution and live Kite routing are designed but not yet built.
 
 ## 1. What MarketOS is
 
@@ -113,6 +113,28 @@ Domain errors subclass `MarketOSError` and are rendered as
 `ConflictError` 409, `FeatureDisabledError` 403). Validation errors use FastAPI's
 standard 422 body.
 
+### Security (Phase 1)
+
+* **Credentials at rest**: `SecretStore` encrypts every credential with Fernet before it reaches
+  the `secrets` table. The master key comes from `MARKETOS_SECRET_KEY` or is generated once into
+  `MARKETOS_SECRET_KEY_FILE` (mode 0600, the `apisecrets` Docker volume). The API never returns a
+  stored value, only "set" plus a masked hint.
+* **Auth**: one admin password (scrypt hash in `secrets`). Tokens are HMAC-SHA256 signed with a
+  key derived from the master key and carry an expiry and a *generation*. Changing the password
+  bumps the generation, which revokes every outstanding token. Failed logins are rate limited.
+* **Runtime settings** (`app_settings`): kill switch, auto-execute, live-armed, confidence threshold,
+  signal TTL, parser mode and model.
+
+### Telegram ingestion (Phase 2)
+
+`TelegramService` owns a `TelethonTelegramAdapter` built from the encrypted API ID and hash and
+the (encrypted) session string. Login is: send code to the saved phone, submit the code, then
+optionally the 2FA password, after which the session string is stored. On startup (when
+`MARKETOS_BACKGROUND_SERVICES=true`) it reconnects and listens to every **enabled** `telegram`
+source. Each new post becomes a `RawMessage` (deduplicated by `(source_id, external_message_id)`)
+and a `raw_message.received` event. Edits and deletions are not processed yet. Health is served
+from cached state so status endpoints never block on Telegram's network.
+
 ## 4. Frontend
 
 * Next.js App Router, client components fetching the API directly (`NEXT_PUBLIC_API_URL`, CORS-enabled).
@@ -131,7 +153,8 @@ standard 422 body.
 
 ## 6. Safety model
 
-1. `Settings` rejects `trading_mode=live` / `live_trading_enabled=true` (Phase 0).
+1. `Settings` rejects `trading_mode=live` / `live_trading_enabled=true` in this build. The runtime
+   `live_armed` switch cannot be turned on unless that server-level flag is set.
 2. `AdapterRegistry` only wires `DisabledBrokerAdapter`, which raises on every order call.
 3. The API exposes **no** order-mutation endpoints (asserted by a test on the OpenAPI spec).
 4. Creating a `live` broker account is rejected with 403.

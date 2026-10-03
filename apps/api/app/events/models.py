@@ -20,6 +20,8 @@ class EventType(StrEnum):
     SYSTEM_STOPPING = "system.stopping"
     INSTRUMENT_CREATED = "instrument.created"
     SIGNAL_SOURCE_CREATED = "signal_source.created"
+    SIGNAL_SOURCE_UPDATED = "signal_source.updated"
+    SIGNAL_SOURCE_DELETED = "signal_source.deleted"
     BROKER_ACCOUNT_CREATED = "broker_account.created"
     RAW_MESSAGE_RECEIVED = "raw_message.received"
     SIGNAL_CREATED = "signal.created"

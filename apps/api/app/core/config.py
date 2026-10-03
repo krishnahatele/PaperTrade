@@ -43,6 +43,10 @@ class Settings(BaseSettings):
     api_v1_prefix: str = "/api/v1"
     cors_origins: list[str] = Field(default_factory=lambda: ["http://localhost:3000"])
 
+    # Start long-running integrations (Telegram listener, market data, ...)
+    # on startup. Disabled in tests.
+    background_services: bool = True
+
     # --- Logging -----------------------------------------------------------
     log_level: str = "INFO"
     log_json: bool = True

@@ -18,7 +18,8 @@ def registry() -> AdapterRegistry:
 async def test_all_adapters_report_disabled(registry: AdapterRegistry) -> None:
     health = await registry.health()
     assert set(health) == {"broker", "market_data", "telegram", "llm"}
-    assert all(h.state is AdapterState.DISABLED for h in health.values())
+    assert health["telegram"].state is AdapterState.NOT_CONFIGURED
+    assert all(h.state is AdapterState.DISABLED for k, h in health.items() if k != "telegram")
 
 
 async def test_broker_refuses_orders(registry: AdapterRegistry) -> None:
@@ -49,5 +50,7 @@ async def test_other_adapters_refuse(registry: AdapterRegistry) -> None:
         await registry.market_data.subscribe([key], on_tick)
     with pytest.raises(FeatureDisabledError):
         await registry.telegram.fetch_history("chan")
+    with pytest.raises(FeatureDisabledError):
+        await registry.telegram.send_login_code("+911234567890")
     with pytest.raises(FeatureDisabledError):
         await registry.llm.complete(LLMRequest(messages=[LLMMessage(role="user", content="hi")]))

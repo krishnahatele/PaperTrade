@@ -7,6 +7,7 @@ import { Card } from "@/components/ui";
 import { apiSend } from "@/lib/api";
 import type { Integrations } from "@/lib/types";
 import { SecretStatus } from "./SecretStatus";
+import { TelegramLogin } from "./TelegramLogin";
 
 export function TelegramCard({ data, onChange }: { data: Integrations["telegram"]; onChange: () => void }) {
   const [apiId, setApiId] = useState("");
@@ -61,6 +62,7 @@ export function TelegramCard({ data, onChange }: { data: Integrations["telegram"
         </Button>
         {save.view}
       </div>
+      <TelegramLogin canLogin={data.api_id.set && data.api_hash.set && data.phone.set} onChange={onChange} />
     </Card>
   );
 }

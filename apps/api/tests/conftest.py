@@ -70,6 +70,7 @@ def make_settings(**overrides: object) -> Settings:
         "log_level": "WARNING",
         "secret_key": TEST_SECRET_KEY,
         "auth_enabled": False,
+        "background_services": False,
     }
     return Settings(**{**base, **overrides})  # type: ignore[arg-type]
 

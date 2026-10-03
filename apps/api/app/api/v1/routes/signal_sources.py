@@ -4,11 +4,11 @@ import uuid
 
 from fastapi import APIRouter, status
 
-from app.api.deps import BusDep, PageDep, SessionDep
+from app.api.deps import BusDep, ContainerDep, PageDep, SessionDep
 from app.models import RawMessage, SignalSource
 from app.schemas.common import Page
 from app.schemas.raw_message import RawMessageRead
-from app.schemas.signal_source import SignalSourceCreate, SignalSourceRead
+from app.schemas.signal_source import SignalSourceCreate, SignalSourceRead, SignalSourceUpdate
 from app.services.catalog import SignalSourceService
 from app.services.repository import Repository
 
@@ -35,9 +35,32 @@ async def get_signal_source(source_id: uuid.UUID, session: SessionDep) -> Signal
 
 @router.post("", response_model=SignalSourceRead, status_code=status.HTTP_201_CREATED)
 async def create_signal_source(
-    data: SignalSourceCreate, session: SessionDep, bus: BusDep
+    data: SignalSourceCreate, session: SessionDep, bus: BusDep, container: ContainerDep
 ) -> SignalSource:
-    return await SignalSourceService(session, bus).create(data)
+    src = await SignalSourceService(session, bus).create(data)
+    await container.telegram.start_listening()
+    return src
+
+
+@router.patch("/{source_id}", response_model=SignalSourceRead)
+async def update_signal_source(
+    source_id: uuid.UUID,
+    data: SignalSourceUpdate,
+    session: SessionDep,
+    bus: BusDep,
+    container: ContainerDep,
+) -> SignalSource:
+    src = await SignalSourceService(session, bus).update(source_id, data)
+    await container.telegram.start_listening()
+    return src
+
+
+@router.delete("/{source_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_signal_source(
+    source_id: uuid.UUID, session: SessionDep, bus: BusDep, container: ContainerDep
+) -> None:
+    await SignalSourceService(session, bus).delete(source_id)
+    await container.telegram.start_listening()
 
 
 @router.get("/{source_id}/messages", response_model=Page[RawMessageRead])

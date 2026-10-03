@@ -1,7 +1,9 @@
-"""TelegramAdapter: reads messages from configured channels.
+"""TelegramAdapter: a logged-in Telegram *user* session that reads channels.
 
-Planned implementation: an MTProto user client (e.g. Telethon). Ingestion is
-out of scope for Phase 0; only the contract is defined.
+The real implementation is Telethon (MTProto). Logging in is a two/three step
+flow: request a code to the phone number, submit the code, and (if the account
+has two-step verification) submit the cloud password. The resulting session
+string is stored encrypted by the caller.
 """
 
 from __future__ import annotations
@@ -9,6 +11,7 @@ from __future__ import annotations
 from abc import ABC, abstractmethod
 from collections.abc import Awaitable, Callable, Sequence
 from datetime import datetime
+from enum import StrEnum
 from typing import Any
 
 from pydantic import BaseModel, Field
@@ -21,7 +24,21 @@ class InboundMessage(BaseModel):
     message_id: str
     text: str
     sent_at: datetime
+    reply_to_message_id: str | None = None
     raw: dict[str, Any] = Field(default_factory=dict)
+
+
+class TelegramChannel(BaseModel):
+    id: str
+    title: str
+    username: str | None = None
+    kind: str  # "channel" | "group"
+
+
+class LoginStep(StrEnum):
+    CODE = "code"
+    PASSWORD = "password"  # noqa: S105 - step name
+    DONE = "done"
 
 
 MessageHandler = Callable[[InboundMessage], Awaitable[None]]
@@ -32,6 +49,29 @@ class TelegramAdapter(ABC):
 
     @abstractmethod
     async def health(self) -> AdapterHealth: ...
+
+    # --- login ------------------------------------------------------------
+    @abstractmethod
+    async def is_authorized(self) -> bool: ...
+
+    @abstractmethod
+    async def send_login_code(self, phone: str) -> None: ...
+
+    @abstractmethod
+    async def submit_login_code(self, code: str) -> LoginStep: ...
+
+    @abstractmethod
+    async def submit_password(self, password: str) -> LoginStep: ...
+
+    @abstractmethod
+    def export_session(self) -> str: ...
+
+    @abstractmethod
+    async def log_out(self) -> None: ...
+
+    # --- reading ----------------------------------------------------------
+    @abstractmethod
+    async def list_channels(self) -> list[TelegramChannel]: ...
 
     @abstractmethod
     async def start(self, channel_ids: Sequence[str], on_message: MessageHandler) -> None:

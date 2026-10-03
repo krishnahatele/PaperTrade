@@ -22,3 +22,9 @@ class SignalSourceCreate(SignalSourceBase):
 
 class SignalSourceRead(SignalSourceBase, ReadModel):
     pass
+
+
+class SignalSourceUpdate(BaseModel):
+    name: str | None = Field(default=None, min_length=1, max_length=128)
+    is_enabled: bool | None = None
+    config: dict[str, Any] | None = None

@@ -1,7 +1,11 @@
 # Database
 
-PostgreSQL 16. The schema is managed by Alembic (`apps/api/alembic`). Revision `0001` creates
-everything below.
+PostgreSQL 16. The schema is managed by Alembic (`apps/api/alembic`).
+
+| Revision | Adds |
+|---|---|
+| `0001` | instruments, broker_accounts, signal_sources, raw_messages, signals, orders, trades, positions, events |
+| `0002` | `secrets` (name PK, Fernet `ciphertext`), `app_settings` (key PK, JSONB `value`) |
 
 ## Conventions
 
@@ -137,6 +141,13 @@ erDiagram
 ```
 
 Every table except `events` also has `created_at` and `updated_at`.
+
+Standalone tables (no foreign keys):
+
+* `secrets(name PK, ciphertext BYTEA)`: Fernet-encrypted credentials (Telegram API ID/hash/phone/session,
+  Kite key/secret/access token, LLM key, admin password hash). The master key lives **outside** the
+  database (`MARKETOS_SECRET_KEY` or the key file).
+* `app_settings(key PK, value JSONB)`: runtime settings sections `trading`, `parsing`, `auth`.
 
 ## Integrity rules
 

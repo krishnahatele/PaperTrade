@@ -84,7 +84,7 @@ export function Button({
   disabled,
 }: {
   children: React.ReactNode;
-  onClick?: () => void | Promise<void>;
+  onClick?: () => unknown;
   variant?: "primary" | "secondary" | "danger";
   type?: "button" | "submit";
   disabled?: boolean;

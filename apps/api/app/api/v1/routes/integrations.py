@@ -70,15 +70,18 @@ async def put_telegram(body: TelegramCredentials, container: ContainerDep) -> In
     if changed:
         # New credentials invalidate any existing Telegram login session.
         await container.secrets.delete(N.TELEGRAM_SESSION)
+        await container.telegram.reload()
         await _audit(container, "telegram", "updated", changed)
     return await get_integrations(container)
 
 
 @router.delete("/telegram", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_telegram(container: ContainerDep) -> None:
+    await container.telegram.logout()
     await container.secrets.delete(
         N.TELEGRAM_API_ID, N.TELEGRAM_API_HASH, N.TELEGRAM_PHONE, N.TELEGRAM_SESSION
     )
+    await container.telegram.reload()
     await _audit(container, "telegram", "cleared", [])
 
 

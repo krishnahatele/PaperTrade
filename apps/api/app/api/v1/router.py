@@ -13,6 +13,7 @@ from app.api.v1.routes import (
     signal_sources,
     signals,
     system,
+    telegram,
     trading,
 )
 
@@ -29,4 +30,5 @@ protected.include_router(trading.router)
 protected.include_router(events.router)
 protected.include_router(integrations.router)
 protected.include_router(settings.router)
+protected.include_router(telegram.router)
 api_router.include_router(protected)
