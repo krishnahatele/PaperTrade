@@ -34,7 +34,10 @@ export function toneForState(state: string): Tone {
     case "submitted":
     case "partially_filled":
       return "warn";
+    case "trailing_stop":
+      return "accent";
     case "stop":
+    case "exit_all":
     case "error":
     case "degraded":
     case "rejected":

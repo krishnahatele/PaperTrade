@@ -1,7 +1,10 @@
 "use client";
 
+import { BotCard } from "@/components/settings/BotCard";
+import { BrokerCard } from "@/components/settings/BrokerCard";
 import { KiteCard } from "@/components/settings/KiteCard";
 import { LLMCard } from "@/components/settings/LLMCard";
+import { NewsCard } from "@/components/settings/NewsCard";
 import { PaperAccountCard } from "@/components/settings/PaperAccountCard";
 import { PasswordCard } from "@/components/settings/PasswordCard";
 import { TelegramCard } from "@/components/settings/TelegramCard";
@@ -30,9 +33,12 @@ export default function SettingsPage() {
         <div className="grid gap-4 xl:grid-cols-2">
           <TradingCard key={JSON.stringify(runtime.data.trading)} trading={runtime.data.trading} liveAllowed={Boolean(info.data?.live_trading_enabled)} onChange={reload} />
           <PaperAccountCard />
+          <BrokerCard />
           <TelegramCard data={integrations.data.telegram} onChange={reload} />
+          <BotCard />
           <KiteCard data={integrations.data.kite} onChange={reload} />
           <LLMCard key={`${runtime.data.parsing.llm_provider}:${runtime.data.parsing.llm_model}`} parsing={runtime.data.parsing} onChange={reload} />
+          <NewsCard />
           <PasswordCard />
         </div>
       )}

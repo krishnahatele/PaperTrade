@@ -148,14 +148,20 @@ curl -s -X POST localhost:8000/api/v1/signals -H 'content-type: application/json
 | GET | `/api/v1/orders/{id}` | |
 | POST | `/api/v1/orders/{id}/cancel` | Manual or entry orders only (bracket legs are managed by their trade) |
 | GET | `/api/v1/orders/{id}/trades` | Fills for an order (array, not paginated) |
-| GET | `/api/v1/trades` | Managed trades (`trade_plans`) with symbol, LTP and unrealized P&L. Filters: `status`, `broker_account_id` |
+| GET | `/api/v1/trades` | Managed trades (`trade_plans`) with symbol, exchange, segment, lot size, LTP and unrealized P&L (on `open_quantity`). Each has `targets` (TP ladder `[{price, quantity, status: open\|hit\|cancelled}]`), `trailing` (`{mode: none\|step\|points\|percent, value}`), `initial_stop_loss`, `best_price`, `gross_pnl`. Filters: `status`, `broker_account_id` |
 | GET | `/api/v1/trades/{id}` | |
-| POST | `/api/v1/trades/{id}/close` | Open: exit at market (cancels SL/target). Pending: cancel the entry |
+| PATCH | `/api/v1/trades/{id}` | Any of `stop_loss`, `targets: [{price, quantity}]` (replaces the open legs; whole lots; total ≤ open quantity), `trail_mode`, `trail_value`. Moves the working stop / target orders. 422 if the stop is past the live price |
+| POST | `/api/v1/trades/{id}/exit` | `{quantity?}` exit some whole lots at market (stop and targets shrink); omit for everything |
+| POST | `/api/v1/trades/{id}/enter-now` | Waiting trade: cancel the entry order and buy/sell at market now (same SL/targets). 422 if already past the stop |
+| POST | `/api/v1/trades/{id}/stop-to-cost` | Move the stop-loss to the entry price |
+| POST | `/api/v1/trades/{id}/close` | Open: exit everything at market. Pending: cancel the entry |
+| POST | `/api/v1/trading/exit-all` | Panic button: kill switch on, cancel waiting trades, exit every open trade, flatten other paper positions. Returns `{cancelled, exited, flattened}` |
+| POST | `/api/v1/trading/kill-switch` | `{on: bool}` |
 | POST | `/api/v1/signals/{id}/execute` | Execute a validated signal now on `{broker_account_id?}` (default Paper). 422 with the reason when a risk rule blocks it |
 | GET | `/api/v1/positions` | Raw positions. Filter: `broker_account_id` |
 | GET | `/api/v1/portfolio/positions` | Open positions with LTP and unrealized P&L (`include_closed=true` for all) |
 | GET | `/api/v1/portfolio/summary` | Per account: capital, realized today/total, unrealized, open/pending/closed counts, win rate |
-| PATCH | `/api/v1/broker-accounts/{id}` | `label`, `is_active`, `settings` (merged and validated: `capital`, `risk_per_trade_pct`, `max_position_pct`, `max_open_trades`, `daily_loss_limit_pct`, `auto_execute`, `allow_short`, `allow_min_lot`, `target_index`, `entry_tolerance_pct`, `slippage_bps`, `charges_per_order`) |
+| PATCH | `/api/v1/broker-accounts/{id}` | `label`, `is_active`, `settings` (merged and validated: `capital`, `risk_per_trade_pct`, `max_position_pct`, `max_open_trades`, `daily_loss_limit_pct`, `auto_execute`, `allow_short`, `allow_min_lot`, `exit_mode` (`split` lot-wise across TP1/TP2… or `single`), `target_index` (single mode), `max_split_targets`, `trail_mode` (`step`/`points`/`percent`/`none`), `trail_value`, `entry_tolerance_pct`, `slippage_bps`, `charges_per_order`) |
 
 ## Kite & market data
 
@@ -165,8 +171,62 @@ curl -s -X POST localhost:8000/api/v1/signals -H 'content-type: application/json
 | GET | `/api/v1/kite/login-url` | Zerodha login URL for your API key |
 | POST | `/api/v1/kite/session` | `{request_token}`: the token or the full redirect URL. Stores today's access token encrypted |
 | POST | `/api/v1/kite/logout` | Forgets the access token |
-| GET | `/api/v1/market/ltp?instrument_id=…` | Last traded prices (Kite, else manual) |
+| GET | `/api/v1/market/ltp?instrument_id=…` | Last traded prices (source per Broker settings: Kite, Dhan, else manual) |
 | POST | `/api/v1/market/manual-price` | `{instrument_id, price}`: practice price used when Kite has none; triggers order matching |
+
+## Brokers (read-only towards the broker; orders stay paper)
+
+| Method | Path | Notes |
+|---|---|---|
+| GET | `/api/v1/brokers/providers` | Registry: id, label, available, credential `fields`, `capabilities`, `static_ip_required`, costs |
+| GET | `/api/v1/brokers` | Each broker with `configured`, `session_active`, masked field status, `selected` |
+| GET / PATCH | `/api/v1/brokers/settings` | `primary` broker, `market_data` and `history` source (`auto`/`kite`/`dhan`/`manual`), `dhan_token_saved_at` |
+| PUT | `/api/v1/brokers/{provider}/credentials` | `{values: {field: value}}` (blank ignored); stored encrypted. 403 for "coming soon" brokers |
+| DELETE | `/api/v1/brokers/{provider}/credentials` | |
+| POST | `/api/v1/brokers/{provider}/test` | Read-only check: profile, funds, positions, notes (static-IP rule). Never places orders |
+| GET | `/api/v1/brokers/{provider}/positions` | Positions held at the broker |
+| POST | `/api/v1/brokers/dhan/renew-token` | Extend the Dhan token 24 h now (also automatic every ~20 h) |
+| POST | `/api/v1/brokers/dhan/sync-instruments` | Download Dhan's scrip master and attach Dhan security ids (`instruments.broker_refs.dhan`) |
+
+## Telegram bot
+
+| Method | Path | Notes |
+|---|---|---|
+| GET | `/api/v1/bot` | `{configured, running, username, linked, owner_name, last_error, notify}` |
+| PUT | `/api/v1/bot/token` | `{token}` from @BotFather (validated with getMe, stored encrypted) |
+| DELETE | `/api/v1/bot/token` | |
+| POST | `/api/v1/bot/create` | Create the bot through your Telegram login (talks to @BotFather) and link it automatically |
+| POST | `/api/v1/bot/link` | `{code, url}`: open `url` (t.me/<bot>?start=<code>) and press Start; valid 30 min |
+| POST | `/api/v1/bot/unlink` · `/api/v1/bot/test` | |
+| PATCH | `/api/v1/bot/notify` | `{signals, trades, skipped, news, market_moves}` |
+
+Bot buttons (callback data): `buy:<trade>` enter now, `cx:<trade>` cancel, `ex1:<trade>` exit one lot,
+`exa:<trade>` exit all of it, `be:<trade>` SL → cost, `trade|approve|reject:<signal>`, `xall!` EXIT ALL
+(after a confirmation message), `ksoff`. Keyboard: 📊 Status · 🛑 EXIT ALL · ⏸ Pause auto · ▶️ Resume auto;
+commands `/status /exitall /pause /resume /killoff /help`. Only the linked chat is obeyed.
+
+## News & alerts
+
+| Method | Path | Notes |
+|---|---|---|
+| GET | `/api/v1/news` | Headlines, newest first. Filters: `q`, `matched_only`, `source` |
+| POST | `/api/v1/news/refresh` | Fetch all feeds now: `{fetched, new, alerts}` |
+| GET | `/api/v1/news/status` | `{last_poll, feed_errors}` |
+| GET / PUT | `/api/v1/news/settings` | `enabled`, `poll_minutes`, `feeds [{name,url,enabled}]`, `keywords`, `watches [{symbol,label,threshold_pct,window_minutes,enabled}]`, `market_alerts`, `alert_cooldown_minutes` |
+| GET | `/api/v1/market/watch` | Watched instruments now: LTP and % change over each window |
+| GET | `/api/v1/alerts` | Keyword-headline and market-move alerts. Filters: `kind`, `unread_only` |
+| GET | `/api/v1/alerts/unread-count` · POST `/api/v1/alerts/read-all` | |
+
+## Replay (backtest)
+
+| Method | Path | Notes |
+|---|---|---|
+| POST | `/api/v1/replays` | Start: `date_from`, `date_to` (≤ 31 days), `source_ids` (empty = all), `messages` (`auto`/`telegram`/`stored`), `use_ai`, `settings` (risk overrides), `entry_window_minutes`, `square_off`, `same_candle` (`stop_first`/`target_first`). Runs in the background |
+| GET | `/api/v1/replays` | Runs with status, progress and overall stats |
+| GET | `/api/v1/replays/{id}` | Run with `report`: overall stats, capital/return/drawdown, targets hit, breakdowns `by_source`, `by_segment`, `by_side`, `by_exit_reason`, `by_day`, `by_hour`, `by_underlying`, `equity_curve`, best/worst trades |
+| GET | `/api/v1/replays/{id}/trades` | Every replayed signal and its outcome (`win`, `loss`, `breakeven`, `entry_not_hit`, `no_data`, `unresolved`, `incomplete`). Filters: `outcome`, `source`, `segment` |
+| GET | `/api/v1/replays/{id}/trades.csv` | Same as CSV |
+| POST | `/api/v1/replays/{id}/cancel` · DELETE `/api/v1/replays/{id}` | |
 
 ## Events
 
@@ -179,5 +239,7 @@ Event types emitted today: `system.started`, `system.stopping`, `instrument.crea
 `raw_message.received`, `raw_message.processed`, `signal.status_changed`, `instruments.synced`,
 `order.created`, `order.status_changed`, `trade.executed`, `trade_plan.created|opened|closed`,
 `signal.execution_skipped`, `market.manual_price_set`, `broker_account.updated`,
-`integration.updated`, `settings.updated`. Events caused by one Telegram message share its
+`integration.updated`, `settings.updated`, `trade_plan.updated|reduced`, `order.modified`,
+`trading.exit_all`, `trading.kill_switch_changed`, `news.received`, `news.alert`, `market.alert`,
+`replay.finished`, `bot.linked`. Events caused by one Telegram message share its
 `correlation_id`.

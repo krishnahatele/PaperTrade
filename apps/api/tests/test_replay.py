@@ -174,6 +174,8 @@ async def test_replay_end_to_end_report_and_isolation(db_client: AsyncClient) ->
     assert rep["by_source"]["Alpha"]["signals"] == 5
     assert rep["targets_hit"]["T2"]["count"] == 1
     assert len(rep["equity_curve"]) == 3
+    assert [t["symbol"] for t in rep["best_trades"]] == ["NIFTY2610824500CE"]
+    assert [t["symbol"] for t in rep["worst_trades"]] == ["RELIANCE"]
     assert rep["data_sources"] == {"fake": 2}
     assert ("NIFTY2610824500CE", day, day) in hist.calls
 

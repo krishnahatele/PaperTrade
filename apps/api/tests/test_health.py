@@ -21,7 +21,7 @@ async def test_system_info(client: AsyncClient) -> None:
     r = await client.get("/api/v1/system/info")
     assert r.status_code == 200
     body = r.json()
-    assert body["phase"] == "4"
+    assert body["phase"] == "5"
     assert body["trading_mode"] == "paper"
     assert body["live_trading_enabled"] is False
     assert set(body["adapters"]) == {"broker", "market_data", "telegram", "llm"}

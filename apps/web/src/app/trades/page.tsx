@@ -8,6 +8,7 @@ import { StatusPill, toneForState } from "@/components/StatusPill";
 import { PageHeader } from "@/components/ui";
 import { apiSend } from "@/lib/api";
 import { formatDateTime, formatNumber, inr, pnlClass } from "@/lib/format";
+import { Ladder } from "@/components/trade/Ladder";
 import type { TradePlan } from "@/lib/types";
 
 const TABS = [
@@ -35,7 +36,7 @@ export default function TradesPage() {
 
   return (
     <>
-      <PageHeader title="Trades" description="Each signal becomes a managed trade: entry order, then a stop loss and a target. When one exits, the other is cancelled. Paper trades use simulated fills." />
+      <PageHeader title="Trades" description="Each signal becomes a managed trade: an entry, a stop-loss for what you hold, and one exit per target (TP1, TP2…). The stop can trail. Open a trade to change its stop-loss or targets, or exit some lots. Paper trades use simulated fills." />
       <div className="mb-3 flex flex-wrap gap-1" role="tablist">
         {TABS.map((t) => (
           <button key={t.key} role="tab" aria-selected={tab === t.key} onClick={() => setTab(t.key)} className={`rounded-md px-3 py-1 text-sm ${tab === t.key ? "bg-panel-2 font-medium" : "text-muted hover:text-text"}`}>
@@ -57,17 +58,17 @@ export default function TradesPage() {
             render: (t) => (
               <span>
                 <StatusPill tone={t.side === "BUY" ? "good" : "bad"}>{t.side}</StatusPill>{" "}
-                <span className="font-medium">{t.tradingsymbol}</span>
+                <Link href={`/trades/${t.id}`} className="font-medium text-accent hover:underline">{t.tradingsymbol}</Link>
                 {t.signal_id && (
                   <Link href={`/signals/${t.signal_id}`} className="ml-1 text-xs text-accent">signal</Link>
                 )}
               </span>
             ),
           },
-          { key: "qty", header: "Qty", align: "right", render: (t) => t.quantity },
+          { key: "qty", header: "Qty", align: "right", render: (t) => (t.status === "open" && t.open_quantity !== t.quantity ? `${t.open_quantity}/${t.quantity}` : t.quantity) },
           { key: "entry", header: "Entry", align: "right", render: (t) => formatNumber(t.entry_price ?? t.planned_entry) },
           { key: "sl", header: "Stop", align: "right", render: (t) => formatNumber(t.stop_loss) },
-          { key: "tgt", header: "Target", align: "right", render: (t) => formatNumber(t.target) },
+          { key: "tgt", header: "Targets", align: "right", render: (t) => <Ladder t={t} /> },
           { key: "ltp", header: "LTP / exit", align: "right", render: (t) => formatNumber(t.exit_price ?? t.ltp) },
           {
             key: "pnl",
@@ -93,9 +94,12 @@ export default function TradesPage() {
             header: "",
             render: (t) =>
               t.status === "open" || t.status === "pending" ? (
-                <Button variant="secondary" onClick={() => close(t)}>
-                  {t.status === "open" ? "Exit" : "Cancel"}
-                </Button>
+                <span className="flex gap-1">
+                  <Link href={`/trades/${t.id}`} className="rounded-md border border-border px-3 py-1.5 text-sm">Manage</Link>
+                  <Button variant="secondary" onClick={() => close(t)}>
+                    {t.status === "open" ? "Exit" : "Cancel"}
+                  </Button>
+                </span>
               ) : null,
           },
         ]}

@@ -168,12 +168,34 @@ erDiagram
 
 Every table except `events` also has `created_at` and `updated_at`.
 
+Columns added in Phase 5 (migrations `0005`–`0007`):
+
+* `trade_plans`: `targets JSONB` (TP ladder `[{price, quantity, status}]`), `trailing JSONB`
+  (`{mode, value}`), `initial_stop_loss`, `open_quantity` (still held), `best_price` (for
+  trailing), `gross_pnl`. `exit_price` is the average over all exits; `realized_pnl = gross - charges`.
+  `exit_reason` gained `trailing_stop`, `exit_all`, `end_of_day`.
+* `orders.leg`: which TP leg a `target` order exits (0 = TP1).
+* `instruments.broker_refs JSONB`: other brokers' ids, e.g. `{"dhan": "49081"}`.
+
+New tables:
+
+* `news_items(source, title, summary, url UNIQUE, published_at, matched JSONB, direction)`:
+  RSS headlines; `matched` = watch keywords found.
+* `alerts(kind news|market|system, title, body, url, payload JSONB, read)`.
+* `replay_runs(name, status, params JSONB, progress JSONB, report JSONB, error, started_at,
+  finished_at)` and `replay_trades(run_id FK CASCADE, source_id FK SET NULL, source_name,
+  message_text, message_at, outcome, instrument_id, tradingsymbol, segment, side, signal JSONB,
+  quantity, entry/exit price & time, exit_reason, targets_hit, gross/charges/net P&L, r_multiple,
+  mfe, mae, legs JSONB, notes)`. Replay never writes to signals, orders, trades or positions.
+
 Standalone tables (no foreign keys):
 
 * `secrets(name PK, ciphertext BYTEA)`: Fernet-encrypted credentials (Telegram API ID/hash/phone/session,
   Kite key/secret/access token, LLM key, admin password hash). The master key lives **outside** the
   database (`MARKETOS_SECRET_KEY` or the key file).
-* `app_settings(key PK, value JSONB)`: runtime settings sections `trading`, `parsing`, `auth`.
+* `app_settings(key PK, value JSONB)`: runtime settings sections `trading`, `parsing`, `auth`,
+  `broker` (primary broker, price/history source), `bot` (owner chat, notify flags), `news`
+  (feeds, keywords, watches). Secrets also hold `broker.dhan.*` and `telegram.bot_token`.
 
 ## Integrity rules
 
@@ -209,3 +231,6 @@ uv run alembic check                     # fails if models and migrations diverg
 After autogenerating, review the file. Alembic emits enum `CHECK` constraints twice: keep the
 `op.f("ck_<table>_<name>")` one, delete the bare `name="<name>"` duplicate, and set
 `create_constraint=False` on the `sa.Enum(...)` column type (see `0001`).
+
+Adding a value to an existing enum needs a migration that drops and re-creates its
+`ck_<table>_<name>` constraint (see `0005`). `tests/test_enum_constraints.py` fails if you forget.

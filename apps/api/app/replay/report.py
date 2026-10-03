@@ -120,7 +120,9 @@ def build_report(
             "message_at": r.message_at.isoformat(),
         }
 
-    best = sorted(traded, key=lambda r: r.net_pnl or ZERO, reverse=True)
+    ranked = sorted(traded, key=lambda r: r.net_pnl or ZERO, reverse=True)
+    best = [r for r in ranked if (r.net_pnl or ZERO) > 0][:5]
+    worst = [r for r in reversed(ranked) if (r.net_pnl or ZERO) < 0][:5]
     overall = stats(rows)
     return {
         "generated_at": datetime.now(IST).isoformat(),
@@ -151,7 +153,7 @@ def build_report(
             rows, lambda r: (r.signal or {}).get("underlying") or r.tradingsymbol
         ),
         "equity_curve": curve,
-        "best_trades": [brief(r) for r in best[:5]],
-        "worst_trades": [brief(r) for r in reversed(best[-5:])] if best else [],
+        "best_trades": [brief(r) for r in best],
+        "worst_trades": [brief(r) for r in worst],
         "data_sources": sources_used,
     }

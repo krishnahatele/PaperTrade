@@ -190,6 +190,37 @@ channel (deduplicated), so messages posted while the app was off are not lost.
   Skips are recorded as `signal.execution_skipped` with the reason.
 * A **"Paper"** account (₹1,00,000) is created on startup.
 
+### Phase 5: trade management, brokers, bot, news, replay
+
+* **Target ladders & trailing** (`services/risk.py`, `services/trading.py`): a trade's quantity is
+  split lot-wise over TP1, TP2, … (`exit_mode=split`, front-loaded) or put on one target
+  (`single`). After entry: one SL-M stop for `open_quantity` and one LIMIT per open leg. A target
+  fill reduces `open_quantity`, shrinks the stop and trims later legs. Trailing: `step` (SL → cost
+  after TP1, → TP1 after TP2), or `points`/`percent` from the best price, checked every tick; the
+  stop only ever tightens. `update_plan` edits SL/targets/trailing live, `exit_plan` exits whole
+  lots, `enter_now` replaces a waiting entry with a market order, `exit_all` is the panic button.
+* **Brokers** (`adapters/broker/{providers,dhan,kite}.py`, `services/brokers.py`): a registry
+  drives the Settings form. Dhan (DhanHQ v2, fields from the official SDK) and Kite adapters
+  implement profile/funds/positions and the order calls (Dhan Super Orders with trailing, exit-all,
+  kill switch). Only the read-only calls are used; nothing routes orders to them. Dhan tokens are
+  renewed every ~20 h by a housekeeping task. `instruments.broker_refs.dhan` comes from Dhan's
+  scrip master. `MarketDataService` picks Kite or Dhan per `BrokerRuntime.market_data`.
+* **Telegram bot** (`adapters/telegram/bot_api.py`, `services/bot.py`): Bot API long-polling, a
+  per-trade card edited in place with inline buttons, a persistent keyboard, a pinned status
+  message, alerts for fills/targets/stops/news/moves. Linked to one owner chat by a one-time code;
+  can be created through the user's own Telegram login (@BotFather conversation).
+* **News** (`services/news.py`): RSS feeds every few minutes → `news_items`; keyword matches within
+  6 h → `alerts` + `news.alert`. Watched instruments are checked every minute; a move ≥ threshold
+  within the window → `market.alert` (with cooldown).
+* **Replay** (`replay/simulator.py`, `replay/report.py`, `services/replay.py`,
+  `adapters/history/*`): messages from Telegram history (or stored ones) for chosen IST days →
+  rules (or AI) parse → contract resolved *as of that day* → 1-minute candles from Kite or Dhan
+  (Dhan's rolling-option data for expired index options) → candle-by-candle simulation with the
+  same entry/exit rules, intraday square-off, conservative same-candle ordering → report. Writes
+  only `replay_*` tables.
+* **Segments**: instruments sync NSE, NFO, BSE, BFO and MCX; commodity aliases (crude, natural gas,
+  gold mini…) and plain commodity calls resolve to the nearest MCX future.
+
 ## 4. Frontend
 
 * Next.js App Router, client components fetching the API directly (`NEXT_PUBLIC_API_URL`, CORS-enabled).
@@ -210,14 +241,17 @@ channel (deduplicated), so messages posted while the app was off are not lost.
 
 1. `Settings` rejects `trading_mode=live` / `live_trading_enabled=true` in this build. The runtime
    `live_armed` switch cannot be turned on unless that server-level flag is set.
-2. The trading engine refuses any account whose mode is not `paper`; no live broker adapter
-   is wired (`DisabledBrokerAdapter`).
+2. The trading engine refuses any account whose mode is not `paper`. Broker adapters (Kite,
+   Dhan) exist for read-only use (connection test, positions, prices, candles); the engine never
+   calls their order methods. Live execution would also need a static IP registered at the broker.
 3. Creating a `live` broker account is rejected with 403.
-4. The kill switch blocks every new order (signal-driven and manual).
+4. The kill switch blocks every new order (signal-driven and manual). EXIT ALL (portal top bar or
+   Telegram bot, with confirmation) turns it on and exits everything.
+5. The Telegram bot obeys only the linked owner chat; button presses from anyone else are refused.
 
 ## 7. Known limitations / next steps
 
 * `EventStore` writes in its own transaction after the publisher commits. A
   transactional outbox should replace it before execution flows land.
 * The in-memory bus is single-process. Run one API replica until a durable bus exists.
-* No authentication yet. The API must not be exposed beyond localhost.
+* Single admin password; keep the API behind it and don't share the URL.

@@ -24,10 +24,17 @@ export const NAV: NavSection[] = [
   {
     title: "Trading",
     items: [
-      { href: "/trades", label: "Trades", description: "Managed trades: entry, stop loss and target" },
+      { href: "/trades", label: "Trades", description: "Managed trades: entry, stop-loss, targets and trailing" },
       { href: "/orders", label: "Orders", description: "Every order placed, paper or live" },
       { href: "/positions", label: "Positions", description: "Net holdings per account" },
       { href: "/instruments", label: "Instruments", description: "Tradable contracts" },
+    ],
+  },
+  {
+    title: "Market",
+    items: [
+      { href: "/news", label: "News & alerts", description: "Headlines, keyword alerts and sharp market moves" },
+      { href: "/replay", label: "Replay", description: "Backtest past Telegram signals on historical prices" },
     ],
   },
   {
