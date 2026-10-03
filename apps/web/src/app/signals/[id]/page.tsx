@@ -81,7 +81,12 @@ function ReviewCard({ signal, onChange }: { signal: Signal; onChange: () => void
   return (
     <Card title="Review" className="lg:col-span-2">
       <div className="flex flex-wrap items-center gap-2">
-        {signal.status !== "validated" && <Button onClick={() => patch({ status: "validated" }, "Approved.")}>Approve</Button>}
+        {signal.status !== "validated" && signal.status !== "executed" && <Button onClick={() => patch({ status: "validated" }, "Approved.")}>Approve</Button>}
+        {signal.status === "validated" && (
+          <Button onClick={() => act.run(() => apiSend(`/api/v1/signals/${signal.id}/execute`, "POST", {}), "Trade placed on the paper account — see Trades.").then(onChange)}>
+            Execute (paper)
+          </Button>
+        )}
         {signal.status !== "rejected" && <Button variant="secondary" onClick={() => patch({ status: "rejected" }, "Rejected.")}>Reject</Button>}
         {act.view}
       </div>

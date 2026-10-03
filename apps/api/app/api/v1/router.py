@@ -10,6 +10,7 @@ from app.api.v1.routes import (
     instruments,
     integrations,
     llm,
+    market,
     messages,
     settings,
     signal_sources,
@@ -35,4 +36,5 @@ protected.include_router(settings.router)
 protected.include_router(telegram.router)
 protected.include_router(messages.router)
 protected.include_router(llm.router)
+protected.include_router(market.router)
 api_router.include_router(protected)

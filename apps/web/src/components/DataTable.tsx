@@ -19,15 +19,17 @@ export function DataTable<T extends { id: string }>({
   columns,
   emptyText = "Nothing here yet.",
   query = "",
+  refreshMs,
 }: {
   path: string;
   columns: Column<T>[];
   emptyText?: string;
   query?: string;
+  refreshMs?: number;
 }) {
   const [offset, setOffset] = useState(0);
   const sep = path.includes("?") ? "&" : "?";
-  const { data, error, loading } = useApi<Page<T>>(`${path}${sep}limit=${PAGE_SIZE}&offset=${offset}${query}`);
+  const { data, error, loading } = useApi<Page<T>>(`${path}${sep}limit=${PAGE_SIZE}&offset=${offset}${query}`, refreshMs);
 
   if (error) return <Notice tone="error">Could not load data: {error}</Notice>;
 

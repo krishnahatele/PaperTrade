@@ -31,6 +31,12 @@ class EventType(StrEnum):
     ORDER_CREATED = "order.created"
     ORDER_STATUS_CHANGED = "order.status_changed"
     TRADE_EXECUTED = "trade.executed"
+    TRADE_PLAN_CREATED = "trade_plan.created"
+    TRADE_PLAN_OPENED = "trade_plan.opened"
+    TRADE_PLAN_CLOSED = "trade_plan.closed"
+    SIGNAL_EXECUTION_SKIPPED = "signal.execution_skipped"
+    MANUAL_PRICE_SET = "market.manual_price_set"
+    BROKER_ACCOUNT_UPDATED = "broker_account.updated"
     INTEGRATION_UPDATED = "integration.updated"
     SETTINGS_UPDATED = "settings.updated"
 

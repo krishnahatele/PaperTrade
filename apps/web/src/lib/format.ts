@@ -26,3 +26,16 @@ const ADAPTER_LABELS: Record<string, string> = {
 export function adapterLabel(key: string): string {
   return ADAPTER_LABELS[key] ?? key;
 }
+
+export function pnlClass(v: string | number | null | undefined): string {
+  const n = Number(v);
+  if (v === null || v === undefined || Number.isNaN(n) || n === 0) return "";
+  return n > 0 ? "text-good" : "text-bad";
+}
+
+export function inr(v: string | number | null | undefined): string {
+  if (v === null || v === undefined || v === "") return "—";
+  const n = Number(v);
+  if (Number.isNaN(n)) return String(v);
+  return `${n < 0 ? "−" : ""}₹${Math.abs(n).toLocaleString("en-IN", { maximumFractionDigits: 2 })}`;
+}

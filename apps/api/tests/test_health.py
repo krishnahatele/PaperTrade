@@ -21,7 +21,7 @@ async def test_system_info(client: AsyncClient) -> None:
     r = await client.get("/api/v1/system/info")
     assert r.status_code == 200
     body = r.json()
-    assert body["phase"] == "0"
+    assert body["phase"] == "4"
     assert body["trading_mode"] == "paper"
     assert body["live_trading_enabled"] is False
     assert set(body["adapters"]) == {"broker", "market_data", "telegram", "llm"}
@@ -51,8 +51,7 @@ async def test_readiness_ok(db_client: AsyncClient) -> None:
     assert r.json()["checks"] == [{"name": "database", "ok": True, "detail": None}]
 
 
-async def test_openapi_has_no_order_mutation_routes(client: AsyncClient) -> None:
-    spec = (await client.get("/openapi.json")).json()
-    for path, ops in spec["paths"].items():
-        if path.startswith("/api/v1/orders"):
-            assert set(ops) == {"get"}, f"{path} must be read-only in Phase 0"
+async def test_no_live_broker_is_wired(client: AsyncClient) -> None:
+    body = (await client.get("/api/v1/system/info")).json()
+    assert body["live_trading_enabled"] is False
+    assert body["adapters"]["broker"]["name"] == "paper"

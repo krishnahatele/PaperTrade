@@ -5,7 +5,8 @@ import { Card, Notice, PageHeader } from "@/components/ui";
 import { StatusPill, toneForState } from "@/components/StatusPill";
 import type { Page, Readiness, SystemInfo } from "@/lib/api";
 import { adapterLabel, formatDateTime } from "@/lib/format";
-import type { EventRecord } from "@/lib/types";
+import { inr, pnlClass } from "@/lib/format";
+import type { AccountSummary, EventRecord } from "@/lib/types";
 import { useApi } from "@/lib/useApi";
 
 function Count({ label, path, href }: { label: string; path: string; href: string }) {
@@ -18,10 +19,21 @@ function Count({ label, path, href }: { label: string; path: string; href: strin
   );
 }
 
+function Stat({ label, value, hint, cls = "" }: { label: string; value: string; hint?: string; cls?: string }) {
+  return (
+    <div>
+      <p className="text-xs uppercase tracking-wide text-muted">{label}</p>
+      <p className={`mt-1 font-mono text-xl tabular-nums ${cls}`}>{value}</p>
+      {hint && <p className="text-xs text-muted">{hint}</p>}
+    </div>
+  );
+}
+
 export default function DashboardPage() {
   const info = useApi<SystemInfo>("/api/v1/system/info");
   const ready = useApi<Readiness>("/health/ready");
   const events = useApi<Page<EventRecord>>("/api/v1/events?limit=8", 10_000);
+  const portfolio = useApi<AccountSummary[]>("/api/v1/portfolio/summary", 5_000);
 
   return (
     <>
@@ -33,10 +45,19 @@ export default function DashboardPage() {
           </Notice>
         </div>
       )}
+      {portfolio.data?.map((a) => (
+        <section key={a.broker_account_id} className="mb-4 grid grid-cols-2 gap-4 rounded-lg border border-border bg-panel p-4 md:grid-cols-5">
+          <Stat label={`${a.label} account`} value={inr(a.capital)} hint={a.mode === "paper" ? "paper capital" : "live"} />
+          <Stat label="P&L today" value={inr(a.realized_today)} cls={pnlClass(a.realized_today)} hint="realized" />
+          <Stat label="Open P&L" value={inr(a.unrealized)} cls={pnlClass(a.unrealized)} hint={`${a.open_trades} open · ${a.pending_trades} waiting`} />
+          <Stat label="Total realized" value={inr(a.realized_total)} cls={pnlClass(a.realized_total)} hint={`${a.closed_trades} closed trades`} />
+          <Stat label="Win rate" value={a.win_rate ? `${a.win_rate}%` : "—"} hint="closed trades" />
+        </section>
+      ))}
       <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
         <Count label="Signals" path="/api/v1/signals" href="/signals" />
+        <Count label="Trades" path="/api/v1/trades" href="/trades" />
         <Count label="Orders" path="/api/v1/orders" href="/orders" />
-        <Count label="Positions" path="/api/v1/positions" href="/positions" />
         <Count label="Sources" path="/api/v1/signal-sources" href="/sources" />
       </div>
 

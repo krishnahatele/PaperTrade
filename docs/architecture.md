@@ -1,7 +1,8 @@
 # MarketOS architecture
 
-> Status: **Phase 0–3 implemented** (foundation, encrypted credentials and auth, Telegram ingestion,
-> signal parsing). Market data, paper execution and live Kite routing are designed but not yet built.
+> Status: **Phase 0–4 implemented**: foundation, encrypted credentials and auth, Telegram ingestion,
+> signal parsing (any AI provider), Kite prices and **paper trading**. Live (real-money) order routing
+> is not built; live accounts are refused everywhere.
 
 ## 1. What MarketOS is
 
@@ -165,6 +166,30 @@ from cached state so status endpoints never block on Telegram's network.
 On startup `TelegramService.boot` also **catches up** on the last 50 messages of every enabled
 channel (deduplicated), so messages posted while the app was off are not lost.
 
+### Paper trading (Phase 4)
+
+* **Kite login** (`KiteService`): API key/secret saved encrypted, then a daily login. Open the Kite
+  login URL, sign in, and paste the redirect URL back. The `request_token` is exchanged for an
+  access token (encrypted). `MarketDataService` polls Kite LTP (REST, 1.5 s cache). Without Kite,
+  prices can be set by hand for practice.
+* **Trade plans** (`trade_plans`): `TradingEngine.execute_signal` runs risk checks (kill switch,
+  account active and paper, signal validated and fresh, no duplicate, max open trades, daily
+  loss limit, shorting allowed) and sizes the position from the account's `AccountRiskSettings`:
+  risk % of capital / |entry − SL|, rounded down to lots, capped by max position %, with an
+  optional 1-lot minimum. The entry type depends on where the price is: inside the call's range
+  → MARKET; not yet reached ("BUY ABOVE") → SL-M stop-entry; already beyond → LIMIT for a
+  pullback. Unfilled entries expire after the signal TTL.
+* **Bracket**: when the entry fills, an SL-M stop and a LIMIT target (target # from settings) are
+  placed. When one fills the other is cancelled (OCO), and the plan closes with realized P&L net
+  of per-order charges.
+* **Matching** (`tick`, every 2 s): MARKET fills at LTP ± slippage rounded to tick; LIMIT when
+  marketable; SL-M when triggered. Fills create `trades`, net into `positions` (average price,
+  realized P&L, flips) and emit `order.*`, `trade.executed` and `trade_plan.*` events.
+* **Auto-execution**: on `signal.created` / `signal.status_changed` to `validated`, when the global
+  *auto-execute* setting is on, every active paper account with `auto_execute` gets the trade.
+  Skips are recorded as `signal.execution_skipped` with the reason.
+* A **"Paper"** account (₹1,00,000) is created on startup.
+
 ## 4. Frontend
 
 * Next.js App Router, client components fetching the API directly (`NEXT_PUBLIC_API_URL`, CORS-enabled).
@@ -185,9 +210,10 @@ channel (deduplicated), so messages posted while the app was off are not lost.
 
 1. `Settings` rejects `trading_mode=live` / `live_trading_enabled=true` in this build. The runtime
    `live_armed` switch cannot be turned on unless that server-level flag is set.
-2. `AdapterRegistry` only wires `DisabledBrokerAdapter`, which raises on every order call.
-3. The API exposes **no** order-mutation endpoints (asserted by a test on the OpenAPI spec).
-4. Creating a `live` broker account is rejected with 403.
+2. The trading engine refuses any account whose mode is not `paper`; no live broker adapter
+   is wired (`DisabledBrokerAdapter`).
+3. Creating a `live` broker account is rejected with 403.
+4. The kill switch blocks every new order (signal-driven and manual).
 
 ## 7. Known limitations / next steps
 

@@ -27,3 +27,11 @@ class BrokerAccountCreate(BrokerAccountBase):
 
 class BrokerAccountRead(BrokerAccountBase, ReadModel):
     mode: ExecutionMode
+
+
+class BrokerAccountUpdate(BaseModel):
+    label: str | None = Field(default=None, min_length=1, max_length=128)
+    is_active: bool | None = None
+    settings: dict[str, Any] | None = Field(
+        default=None, description="Risk settings; see AccountRiskSettings for fields"
+    )

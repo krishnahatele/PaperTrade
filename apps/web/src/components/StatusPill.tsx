@@ -23,6 +23,7 @@ export function toneForState(state: string): Tone {
     case "filled":
     case "executed":
     case "validated":
+    case "target":
     case "parsed":
       return "good";
     case "disabled":
@@ -33,6 +34,7 @@ export function toneForState(state: string): Tone {
     case "submitted":
     case "partially_filled":
       return "warn";
+    case "stop":
     case "error":
     case "degraded":
     case "rejected":

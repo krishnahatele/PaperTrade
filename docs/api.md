@@ -139,16 +139,34 @@ curl -s -X POST localhost:8000/api/v1/signals -H 'content-type: application/json
 }'
 ```
 
-## Orders, trades, positions (read-only)
+## Orders, trades, positions (paper trading)
 
 | Method | Path | Notes |
 |---|---|---|
-| GET | `/api/v1/orders` | Filters: `status`, `broker_account_id` |
+| GET | `/api/v1/orders` | Filters: `status`, `broker_account_id`, `trade_plan_id`. Includes `role` (entry/stop/target/exit/manual) |
+| POST | `/api/v1/orders` | Manual paper order: `instrument_id`, `side`, `quantity` (lot multiple), `order_type`, `price`, `trigger_price`, optional `broker_account_id` (default Paper) |
 | GET | `/api/v1/orders/{id}` | |
+| POST | `/api/v1/orders/{id}/cancel` | Manual or entry orders only (bracket legs are managed by their trade) |
 | GET | `/api/v1/orders/{id}/trades` | Fills for an order (array, not paginated) |
-| GET | `/api/v1/positions` | Filter: `broker_account_id` |
+| GET | `/api/v1/trades` | Managed trades (`trade_plans`) with symbol, LTP and unrealized P&L. Filters: `status`, `broker_account_id` |
+| GET | `/api/v1/trades/{id}` | |
+| POST | `/api/v1/trades/{id}/close` | Open: exit at market (cancels SL/target). Pending: cancel the entry |
+| POST | `/api/v1/signals/{id}/execute` | Execute a validated signal now on `{broker_account_id?}` (default Paper). 422 with the reason when a risk rule blocks it |
+| GET | `/api/v1/positions` | Raw positions. Filter: `broker_account_id` |
+| GET | `/api/v1/portfolio/positions` | Open positions with LTP and unrealized P&L (`include_closed=true` for all) |
+| GET | `/api/v1/portfolio/summary` | Per account: capital, realized today/total, unrealized, open/pending/closed counts, win rate |
+| PATCH | `/api/v1/broker-accounts/{id}` | `label`, `is_active`, `settings` (merged and validated: `capital`, `risk_per_trade_pct`, `max_position_pct`, `max_open_trades`, `daily_loss_limit_pct`, `auto_execute`, `allow_short`, `allow_min_lot`, `target_index`, `entry_tolerance_pct`, `slippage_bps`, `charges_per_order`) |
 
-There are intentionally no endpoints that create, modify or cancel orders in this build.
+## Kite & market data
+
+| Method | Path | Notes |
+|---|---|---|
+| GET | `/api/v1/kite/status` | `{configured, session_active, user_id}` |
+| GET | `/api/v1/kite/login-url` | Zerodha login URL for your API key |
+| POST | `/api/v1/kite/session` | `{request_token}`: the token or the full redirect URL. Stores today's access token encrypted |
+| POST | `/api/v1/kite/logout` | Forgets the access token |
+| GET | `/api/v1/market/ltp?instrument_id=…` | Last traded prices (Kite, else manual) |
+| POST | `/api/v1/market/manual-price` | `{instrument_id, price}`: practice price used when Kite has none; triggers order matching |
 
 ## Events
 
@@ -159,5 +177,7 @@ There are intentionally no endpoints that create, modify or cancel orders in thi
 Event types emitted today: `system.started`, `system.stopping`, `instrument.created`,
 `signal_source.created|updated|deleted`, `broker_account.created`, `signal.created`,
 `raw_message.received`, `raw_message.processed`, `signal.status_changed`, `instruments.synced`,
+`order.created`, `order.status_changed`, `trade.executed`, `trade_plan.created|opened|closed`,
+`signal.execution_skipped`, `market.manual_price_set`, `broker_account.updated`,
 `integration.updated`, `settings.updated`. Events caused by one Telegram message share its
 `correlation_id`.

@@ -18,6 +18,6 @@ async def info(container: ContainerDep) -> SystemInfo:
         environment=s.environment,
         trading_mode=s.trading_mode,
         live_trading_enabled=s.live_trading_enabled,
-        phase="0",
+        phase="4",
         adapters=await container.adapters.health(),
     )

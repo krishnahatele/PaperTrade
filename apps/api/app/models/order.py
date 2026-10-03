@@ -10,6 +10,7 @@ from sqlalchemy.orm import Mapped, mapped_column
 from app.db.base import Base, TimestampMixin, UUIDPrimaryKeyMixin, str_enum
 from app.models.enums import (
     ExecutionMode,
+    OrderRole,
     OrderStatus,
     OrderType,
     OrderValidity,
@@ -58,3 +59,12 @@ class Order(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     average_price: Mapped[Decimal | None]
     status_message: Mapped[str | None] = mapped_column(Text)
     submitted_at: Mapped[datetime | None]
+    # Bracket management: which trade plan this order belongs to, and its job in it.
+    trade_plan_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("trade_plans.id", ondelete="SET NULL"), index=True
+    )
+    role: Mapped[OrderRole] = mapped_column(
+        str_enum(OrderRole, "order_role"), default=OrderRole.MANUAL, server_default="manual"
+    )
+    # Working orders past this time are cancelled (unfilled signal entries).
+    expires_at: Mapped[datetime | None]

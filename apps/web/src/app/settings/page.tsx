@@ -2,6 +2,7 @@
 
 import { KiteCard } from "@/components/settings/KiteCard";
 import { LLMCard } from "@/components/settings/LLMCard";
+import { PaperAccountCard } from "@/components/settings/PaperAccountCard";
 import { PasswordCard } from "@/components/settings/PasswordCard";
 import { TelegramCard } from "@/components/settings/TelegramCard";
 import { TradingCard } from "@/components/settings/TradingCard";
@@ -28,6 +29,7 @@ export default function SettingsPage() {
       {integrations.data && runtime.data && (
         <div className="grid gap-4 xl:grid-cols-2">
           <TradingCard key={JSON.stringify(runtime.data.trading)} trading={runtime.data.trading} liveAllowed={Boolean(info.data?.live_trading_enabled)} onChange={reload} />
+          <PaperAccountCard />
           <TelegramCard data={integrations.data.telegram} onChange={reload} />
           <KiteCard data={integrations.data.kite} onChange={reload} />
           <LLMCard key={`${runtime.data.parsing.llm_provider}:${runtime.data.parsing.llm_model}`} parsing={runtime.data.parsing} onChange={reload} />

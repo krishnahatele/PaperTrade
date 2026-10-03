@@ -91,3 +91,26 @@ class OrderStatus(StrEnum):
     FILLED = "filled"
     CANCELLED = "cancelled"
     REJECTED = "rejected"
+
+
+class OrderRole(StrEnum):
+    ENTRY = "entry"
+    STOP = "stop"
+    TARGET = "target"
+    EXIT = "exit"
+    MANUAL = "manual"
+
+
+class TradePlanStatus(StrEnum):
+    PENDING = "pending"  # entry order working
+    OPEN = "open"  # entry filled, stop + target working
+    CLOSED = "closed"
+    CANCELLED = "cancelled"  # entry never filled
+
+
+class ExitReason(StrEnum):
+    TARGET = "target"
+    STOP = "stop"
+    MANUAL = "manual"
+    EXPIRED = "expired"
+    CANCELLED = "cancelled"

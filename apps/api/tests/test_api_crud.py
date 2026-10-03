@@ -106,8 +106,11 @@ async def test_signal_entry_range_validated(db_client: AsyncClient) -> None:
     assert r.status_code == 422
 
 
-async def test_read_only_lists(db_client: AsyncClient) -> None:
-    for path in ("/api/v1/orders", "/api/v1/positions", "/api/v1/broker-accounts"):
+async def test_empty_lists_and_default_paper_account(db_client: AsyncClient) -> None:
+    for path in ("/api/v1/orders", "/api/v1/positions", "/api/v1/trades"):
         r = await db_client.get(path)
         assert r.status_code == 200
         assert r.json()["items"] == []
+    accounts = (await db_client.get("/api/v1/broker-accounts")).json()["items"]
+    assert [(a["label"], a["mode"]) for a in accounts] == [("Paper", "paper")]
+    assert accounts[0]["settings"]["capital"] == "100000"

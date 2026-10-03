@@ -61,6 +61,10 @@ export type ParsePreview = {
 export type Order = {
   id: string;
   instrument_id: string;
+  role: string;
+  trade_plan_id: string | null;
+  trigger_price: string | null;
+  status_message: string | null;
   client_order_id: string;
   mode: string;
   side: string;
@@ -160,3 +164,66 @@ export type RawMessage = {
   received_at: string;
   status: string;
 };
+
+export type TradePlan = {
+  id: string;
+  signal_id: string | null;
+  broker_account_id: string;
+  instrument_id: string;
+  tradingsymbol: string | null;
+  side: "BUY" | "SELL";
+  product: string;
+  quantity: number;
+  status: "pending" | "open" | "closed" | "cancelled";
+  planned_entry: string | null;
+  stop_loss: string;
+  target: string | null;
+  entry_price: string | null;
+  exit_price: string | null;
+  realized_pnl: string | null;
+  unrealized_pnl: string | null;
+  ltp: string | null;
+  charges: string;
+  exit_reason: string | null;
+  opened_at: string | null;
+  closed_at: string | null;
+  created_at: string;
+};
+
+export type PositionView = {
+  id: string;
+  broker_account_id: string;
+  instrument_id: string;
+  tradingsymbol: string;
+  product: string;
+  quantity: number;
+  average_price: string;
+  realized_pnl: string;
+  ltp: string | null;
+  unrealized_pnl: string | null;
+};
+
+export type AccountSummary = {
+  broker_account_id: string;
+  label: string;
+  mode: string;
+  capital: string;
+  realized_today: string;
+  realized_total: string;
+  unrealized: string;
+  open_trades: number;
+  pending_trades: number;
+  closed_trades: number;
+  win_rate: string | null;
+};
+
+export type BrokerAccount = {
+  id: string;
+  broker: string;
+  label: string;
+  mode: string;
+  is_active: boolean;
+  settings: Record<string, string | number | boolean>;
+};
+
+export type KiteStatus = { configured: boolean; session_active: boolean; user_id: string | null };

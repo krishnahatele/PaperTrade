@@ -6,6 +6,7 @@ import { StatusPill } from "@/components/StatusPill";
 import { Card } from "@/components/ui";
 import { apiSend } from "@/lib/api";
 import type { Integrations } from "@/lib/types";
+import { KiteLogin } from "./KiteLogin";
 import { SecretStatus } from "./SecretStatus";
 
 export function KiteCard({ data, onChange }: { data: Integrations["kite"]; onChange: () => void }) {
@@ -28,7 +29,7 @@ export function KiteCard({ data, onChange }: { data: Integrations["kite"]; onCha
   return (
     <Card title="Zerodha Kite">
       <div className="mb-3 flex items-center justify-between">
-        <p className="text-sm">Market data, instrument list and (optionally) live order routing.</p>
+        <p className="text-sm">Live prices for paper trading. Create an app at developers.kite.trade to get the key and secret.</p>
         <StatusPill tone={data.session_active ? "good" : "warn"}>{data.session_active ? `session · ${data.user_id ?? ""}` : "no session"}</StatusPill>
       </div>
       <div className="space-y-1.5">
@@ -52,6 +53,7 @@ export function KiteCard({ data, onChange }: { data: Integrations["kite"]; onCha
         </Button>
         {save.view}
       </div>
+      <KiteLogin configured={data.api_key.set && data.api_secret.set} onChange={onChange} />
     </Card>
   );
 }

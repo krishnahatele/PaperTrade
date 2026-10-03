@@ -100,6 +100,7 @@ async def put_kite(body: KiteCredentials, container: ContainerDep) -> Integratio
         await container.secrets.put(mapping[k], getattr(body, k))
     if changed:
         await container.secrets.delete(N.KITE_ACCESS_TOKEN, N.KITE_USER_ID)
+        await container.market.reload()
         await _audit(container, "kite", "updated", changed)
     return await get_integrations(container)
 
@@ -109,6 +110,7 @@ async def delete_kite(container: ContainerDep) -> None:
     await container.secrets.delete(
         N.KITE_API_KEY, N.KITE_API_SECRET, N.KITE_ACCESS_TOKEN, N.KITE_USER_ID
     )
+    await container.market.reload()
     await _audit(container, "kite", "cleared", [])
 
 

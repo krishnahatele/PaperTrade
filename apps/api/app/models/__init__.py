@@ -11,6 +11,7 @@ from app.models.secret import SecretRecord
 from app.models.signal import Signal
 from app.models.signal_source import SignalSource
 from app.models.trade import Trade
+from app.models.trade_plan import TradePlan
 
 __all__ = [
     "AppSetting",
@@ -24,4 +25,5 @@ __all__ = [
     "Signal",
     "SignalSource",
     "Trade",
+    "TradePlan",
 ]

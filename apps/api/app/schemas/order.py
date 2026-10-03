@@ -6,6 +6,7 @@ from decimal import Decimal
 
 from app.models.enums import (
     ExecutionMode,
+    OrderRole,
     OrderStatus,
     OrderType,
     OrderValidity,
@@ -34,6 +35,9 @@ class OrderRead(ReadModel):
     average_price: Decimal | None
     status_message: str | None
     submitted_at: datetime | None
+    trade_plan_id: uuid.UUID | None
+    role: OrderRole
+    expires_at: datetime | None
 
 
 class TradeRead(ReadModel):

@@ -24,7 +24,8 @@ export const NAV: NavSection[] = [
   {
     title: "Trading",
     items: [
-      { href: "/orders", label: "Orders", description: "Order history and lifecycle (read-only)" },
+      { href: "/trades", label: "Trades", description: "Managed trades: entry, stop loss and target" },
+      { href: "/orders", label: "Orders", description: "Every order placed, paper or live" },
       { href: "/positions", label: "Positions", description: "Net holdings per account" },
       { href: "/instruments", label: "Instruments", description: "Tradable contracts" },
     ],

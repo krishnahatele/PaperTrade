@@ -7,6 +7,7 @@ PostgreSQL 16. The schema is managed by Alembic (`apps/api/alembic`).
 | `0001` | instruments, broker_accounts, signal_sources, raw_messages, signals, orders, trades, positions, events |
 | `0002` | `secrets` (name PK, Fernet `ciphertext`), `app_settings` (key PK, JSONB `value`) |
 | `0003` | `signals.details` (JSONB parser extras), index `ix_instruments_name_type_expiry` for F&O lookup |
+| `0004` | `trade_plans` (managed entry/stop/target trades), `orders.trade_plan_id`, `orders.role`, `orders.expires_at` |
 
 ## Conventions
 
@@ -30,6 +31,9 @@ erDiagram
     instruments    ||--o{ orders : "for"
     broker_accounts ||--o{ orders : "routed to"
     orders         ||--o{ trades : "filled by"
+    trade_plans    |o--o{ orders : "entry / stop / target"
+    signals        |o--o{ trade_plans : "executed as"
+    broker_accounts ||--o{ trade_plans : "on"
     broker_accounts ||--o{ positions : "holds"
     instruments    ||--o{ positions : "of"
 
@@ -111,6 +115,26 @@ erDiagram
         numeric average_price
         text status_message
         timestamptz submitted_at
+    }
+    trade_plans {
+        uuid id PK
+        uuid signal_id FK
+        uuid broker_account_id FK
+        uuid instrument_id FK
+        varchar side
+        varchar product
+        int quantity
+        varchar status "pending|open|closed|cancelled"
+        numeric planned_entry
+        numeric stop_loss
+        numeric target
+        numeric entry_price
+        numeric exit_price
+        numeric realized_pnl
+        numeric charges
+        varchar exit_reason "target|stop|manual|expired|cancelled"
+        timestamptz opened_at
+        timestamptz closed_at
     }
     trades {
         uuid id PK

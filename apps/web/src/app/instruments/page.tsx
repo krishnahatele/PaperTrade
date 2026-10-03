@@ -57,6 +57,28 @@ export default function InstrumentsPage() {
           { key: "strike", header: "Strike", align: "right", render: (i) => formatNumber(i.strike) },
           { key: "lot", header: "Lot", align: "right", render: (i) => i.lot_size },
           { key: "tick", header: "Tick", align: "right", render: (i) => formatNumber(i.tick_size) },
+          {
+            key: "px",
+            header: "",
+            render: (i) => (
+              <button
+                type="button"
+                className="text-xs text-accent underline"
+                title="Without a Kite session, set a price by hand to practise paper trading"
+                onClick={async () => {
+                  const v = prompt(`Set a practice price for ${i.tradingsymbol}`);
+                  if (!v) return;
+                  try {
+                    await apiSend("/api/v1/market/manual-price", "POST", { instrument_id: i.id, price: v });
+                  } catch (e) {
+                    alert(e instanceof Error ? e.message : String(e));
+                  }
+                }}
+              >
+                set price
+              </button>
+            ),
+          },
         ]}
       />
     </>
